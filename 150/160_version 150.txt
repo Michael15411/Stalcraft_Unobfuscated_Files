@@ -1,0 +1,110 @@
+#version 150
+#define GL40 0
+#line 1
+
+// vertex format specification
+layout ( points ) in;
+layout ( points, max_vertices = 1 ) out;
+
+// transform feedback format spec
+
+#if GL40
+    layout (stream = 0) out vec3 posOut0;
+    layout (stream = 0) out vec4 fadeBrigthnessOut0;
+    layout (stream = 0) out vec4 angleBiomeOut0;
+    layout (stream = 0) out vec2 rotationXzOut0;
+
+    layout (stream = 1) out vec3 posOut1;
+    layout (stream = 1) out vec4 fadeBrigthnessOut1;
+    layout (stream = 1) out vec4 angleBiomeOut1;
+    layout (stream = 1) out vec2 rotationXzOut0;
+
+    layout (stream = 2) out vec3 posOut2;
+    layout (stream = 2) out vec4 fadeBrigthnessOut2;
+    layout (stream = 2) out vec4 angleBiomeOut2;
+    layout (stream = 2) out vec2 rotationXzOut0;
+#else
+    out vec3 posOut;
+    out vec4 fadeBrigthnessOut;
+    out vec4 angleBiomeOut;
+    out vec2 rotationXzOut;
+#endif
+
+#if GL40
+    uniform vec4 lodDistance;
+#else
+    uniform vec2 lodDistance;
+#endif
+uniform float fov;
+uniform vec3 playerPos;
+
+in vec3 pos[1];
+in float angle[1];
+in float distance[1];
+in vec2 brightness[1];
+in vec3 biome[1];
+in vec2 rotXz[1];
+
+flat in int visible[1];
+
+float getScreenArea(float fov, float distance) {
+    float distanceSq = distance * distance;
+    float w = tan(0.5 * fov * 3.14159265 / 180.0) * 2.0;
+    return 1.0 / (distanceSq * w * w);
+}
+
+void main() {
+    if (visible[0] == 1) {
+        float d = distance[0];
+        vec3 instancePos = pos[0];
+        vec3 biomeColor = biome[0];
+        float PI = 3.1415926535;
+        vec2 rotationXz = (rotXz[0] - 0.5) * 2.0 * PI * (180.0 / PI);
+        //float baseSizeNear = getScreenArea(70.0, lodDistance.x - 1.0);
+        //float baseSizeFar = getScreenArea(70.0, lodDistance.y);
+        //float screenSize = getScreenArea(fov, d);
+        //if (screenSize <= baseSizeNear && screenSize >= baseSizeFar) {
+        float verticalBonus = min(8.0, abs(float(int(instancePos.y - playerPos.y))));
+        //d -= verticalBonus;
+        if (d < 0.0) {
+            d = 1.0;
+        }
+        #if GL40
+            if (d >= lodDistance.x - 1.0 && d <= lodDistance.y) {
+                float fadeOut = max(0.0, min(1.0, (lodDistance.x - d) * .25));
+                float fadeIn = max(0.0, min(1.0, (d - lodDistance.y + 1.0) * .25));
+                posOut0 = vec3(instancePos);
+                fadeBrigthnessOut0 = vec4(fadeIn * 4.0, fadeOut * 4.0, brightness[0].x, brightness[0].y);
+                angleBiomeOut0 = vec4(angle[0], biomeColor);
+                EmitStreamVertex(0);
+            }
+            if (d >= lodDistance.y - 1.0 && d <= lodDistance.z) {
+                float fadeOut = max(0.0, min(1.0, (lodDistance.y - d) * .25));
+                float fadeIn = max(0.0, min(1.0, (d - lodDistance.z + 1.0) * .25));
+                posOut1 = vec3(instancePos);
+                fadeBrigthnessOut1 = vec4(fadeIn * 4.0, fadeOut * 4.0, brightness[0].x, brightness[0].y);
+                angleBiomeOut1 = vec4(angle[0], biomeColor);
+                EmitStreamVertex(1);
+            }
+            if (d >= lodDistance.z - 1.0 && d <= lodDistance.w) {
+                float fadeOut = max(0.0, min(1.0, (lodDistance.z - d) * .25));
+                float fadeIn = max(0.0, min(1.0, (d - lodDistance.w + 1.0) * .25));
+                posOut2 = vec3(instancePos);
+                fadeBrigthnessOut2 = vec4(fadeIn * 4.0, fadeOut * 4.0, brightness[0].x, brightness[0].y);
+                angleBiomeOut2 = vec4(angle[0], biomeColor);
+                EmitStreamVertex(2);
+            }
+        #else
+            if (d >= lodDistance.x - 1.0 && d <= lodDistance.y) {
+                float fadeOut = max(0.0, min(1.0, (lodDistance.x - d) * .25));
+                float fadeIn = max(0.0, min(1.0, (d - lodDistance.y + 1.0) * .25));
+                posOut = vec3(instancePos);
+                fadeBrigthnessOut = vec4(fadeIn * 4.0, fadeOut * 4.0, brightness[0].x, brightness[0].y);
+                angleBiomeOut = vec4(angle[0], biomeColor);
+                rotationXzOut = vec2(rotationXz);
+                EmitVertex();
+                EndPrimitive();
+            }
+        #endif
+    }
+}5

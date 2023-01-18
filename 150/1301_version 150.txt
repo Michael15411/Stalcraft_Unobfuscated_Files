@@ -1,0 +1,9 @@
+#version 150
+in vec2 textCoord;
+out vec4 FragColor;
+uniform sampler2DRect tex0;
+
+void main()
+{
+    FragColor = vec4( texture(tex0, textCoord).rgb, 1.0);
+}

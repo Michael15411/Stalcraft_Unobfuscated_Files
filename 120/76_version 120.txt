@@ -1,0 +1,10 @@
+#version 120
+
+#define EFK__INSTANCING_DISABLED__ 1
+#define lowp
+#define mediump
+#define highp
+#define IN attribute
+#define CENTROID
+#define TEX2D texture2DLod
+#define OUT varying

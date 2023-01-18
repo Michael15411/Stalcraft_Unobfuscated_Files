@@ -1,0 +1,95 @@
+#version 110
+
+uniform sampler2D pattern;
+uniform vec2 pixelSize;
+uniform vec3 rarityColor;
+
+uniform float opacity;
+uniform float highlightIntensity;
+uniform bool equipment;
+uniform bool useRarity;
+
+uniform bool shadow;
+uniform float shadowWidth;
+
+varying vec2 uv;
+
+// blending mode: normal
+const vec3 baseColor = vec3(29.0 / 255.0, 29.0 / 255.0, 30.0 / 255.0);
+
+// blending mode: screen
+uniform vec3 lightColor;
+const float lightEdgeWidth = 21.0; // pixels
+uniform float lightOpacity;
+
+// blending mode: divide
+const vec3 gradientColor0 = vec3(1.0);
+const vec3 gradientColor1 = vec3(0.0);
+const float gradientOpacity = 0.02;
+
+// blending mode: divide
+const float patternOpacity = 0.01;
+
+float innerGlow(float borderSize) {
+    vec2 resolution = vec2(1.0) / pixelSize;
+    vec2 dt = abs(uv - vec2(0.5));
+    dt *= resolution;
+    vec2 halfBounds = resolution / 2.0;
+    float p0 = smoothstep(halfBounds.x - borderSize, halfBounds.x + borderSize / 2.0, dt.x);
+    float p1 = smoothstep(halfBounds.y - borderSize, halfBounds.y + borderSize / 2.0, dt.y);
+    return length(vec2(p0, p1));
+}
+
+vec3 gradientV(float y) {
+    return mix(gradientColor0, gradientColor1, y);
+}
+
+vec3 divide(vec3 src, vec3 dst, float opacity) {
+    return mix(src, min(vec3(1.0), src / dst), opacity);
+}
+
+vec3 rarity(vec3 src) {
+    vec2 localUv = uv;
+    vec2 resolution = 1.0 / pixelSize;
+    vec2 uv = vec2(uv.x, 1.0 - uv.y) / pixelSize;
+    vec3 gradient = rarityColor * 0.5 + rarityColor * localUv.x * 0.5; // horizontal gradient
+    float dist = min(uv.x, uv.y);
+
+    // rarity contour
+    float padding = 4.0;
+    float edgeLeft = step(padding, uv.y) * (1.0 - step(1.0, uv.x)) * (1.0 - step(resolution.y - padding, uv.y));
+    float edgeBottom = step(padding, uv.x) * (1.0 - step(1.0, uv.y)) * (1.0 - step(resolution.x - padding, uv.x));
+    float edge = min(1.0, edgeBottom + edgeLeft);
+
+    return mix(src, gradient, max(0.0, edge));
+}
+
+vec4 outerShadow(vec4 src) {
+    float shadow0 = pow(1.0 - innerGlow(shadowWidth * 1.0), 12.0) * 0.5;
+    float shadow1 = pow(1.0 - innerGlow(shadowWidth * 1.0), 3.0) * 0.5;
+    float shadow = shadow0 + shadow1;
+    return vec4(src.xyz, shadow);
+}
+
+void main() {
+    vec2 resolution = vec2(1.0) / pixelSize;
+    vec2 patternUv = uv * resolution / 28.0 / 0.23;
+    vec4 color = vec4(baseColor, 1.0);
+    if (shadow) {
+        color = outerShadow(color);
+    } else {
+        if (equipment) {
+            color.rgb -= lightColor * innerGlow(lightEdgeWidth * 2.25) * lightOpacity + vec3(0.035) * highlightIntensity;
+        } else {
+            color.rgb += lightColor * innerGlow(lightEdgeWidth) * lightOpacity * highlightIntensity;
+            color.rgb = divide(color.rgb, gradientV(uv.y), gradientOpacity);
+            color.rgb = divide(color.rgb, texture2D(pattern, patternUv).rgb, patternOpacity);
+            if (useRarity) {
+                color.rgb = rarity(color.rgb); //vec3(0.9, 0.3, 0.2)
+            }
+        }
+    }
+    color.a *= opacity;
+    color.rgb = max(vec3(0.0), min(vec3(1.0), color.rgb));
+    gl_FragColor = color;
+}

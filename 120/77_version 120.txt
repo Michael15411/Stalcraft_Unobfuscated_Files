@@ -1,0 +1,9 @@
+#version 120
+
+#define lowp
+#define mediump
+#define highp
+#define IN varying
+#define CENTROID
+#define TEX2D texture2D
+#define FRAGCOLOR gl_FragColor

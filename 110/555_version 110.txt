@@ -1,0 +1,22 @@
+#version 110
+
+#define PI2 3.1415926 * 2.
+
+uniform float time;
+
+varying vec2 uv;
+
+vec3 getPattern(vec2 uv){
+    float s = 50.;
+    float w = 2.;
+    float r = sin(uv.x * s) + sin(uv.y * s);
+    return vec3(smoothstep(0.1 * w, 0., r * r)) * .2;
+}
+
+void main(){
+    vec3 color = getPattern(uv / 4.);
+
+    float z = gl_FragCoord.z / gl_FragCoord.w;
+    float alpha = (1. - z / 6.) * .4;
+    gl_FragColor = vec4(color, alpha);
+}

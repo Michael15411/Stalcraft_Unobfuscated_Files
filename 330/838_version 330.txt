@@ -1,0 +1,107 @@
+#version 330
+
+#define lowp
+#define mediump
+#define highp
+#define IN in
+#define CENTROID centroid
+#define TEX2D texture
+layout (location = 0) out vec4 FRAGCOLOR;
+
+#define LAYOUT(ind) 
+
+#define MOD mod
+#define FRAC fract
+#define LERP mix
+
+float atan2(in float y, in float x) {
+    return x == 0.0 ? sign(y)* 3.141592 / 2.0 : atan(y, x);
+}
+
+
+
+LAYOUT(0) CENTROID IN lowp vec4 v_VColor;
+LAYOUT(1) CENTROID IN mediump vec2 v_UV1;
+LAYOUT(2) CENTROID IN mediump vec2 v_UV2;
+LAYOUT(3) IN mediump vec4 v_WorldN_PX;
+LAYOUT(4) IN mediump vec4 v_WorldB_PY;
+LAYOUT(5) IN mediump vec4 v_WorldT_PZ;
+LAYOUT(6) IN mediump vec4 v_PosP;
+//$C_PIN1$
+//$C_PIN2$
+
+#define _INSTANCE_COUNT_ 10
+uniform sampler2D efk_texture_288;
+uniform sampler2D efk_background;
+uniform sampler2D efk_depth;
+
+
+uniform vec4 mUVInversedBack;
+uniform vec4 predefined_uniform;
+uniform vec4 cameraPosition;
+uniform vec4 reconstructionParam1;
+uniform vec4 reconstructionParam2;
+
+
+
+#define FLT_EPSILON 1.192092896e-07
+
+vec3 PositivePow(vec3 base, vec3 power)
+{
+	return pow(max(abs(base), vec3(FLT_EPSILON, FLT_EPSILON, FLT_EPSILON)), power);
+}
+
+vec3 LinearToSRGB(vec3 c)
+{
+	return max(1.055 * PositivePow(c, vec3(0.416666667,0.416666667,0.416666667)) - 0.055, 0.0);
+}
+
+vec4 LinearToSRGB(vec4 c)
+{
+    vec3 param = c.xyz;
+    return vec4(LinearToSRGB(param), c.w);
+}
+
+vec4 ConvertFromSRGBTexture(vec4 c)
+{
+    if (predefined_uniform.z == 0.0)
+    {
+        return c;
+    }
+    vec4 param = c;
+    return LinearToSRGB(param);
+}
+
+vec3 SRGBToLinear(vec3 c)
+{
+	return min(c, c * (c * (c * 0.305306011 + 0.682171111) + 0.012522878));
+}
+
+vec4 SRGBToLinear(vec4 c)
+{
+    vec3 param = c.xyz;
+    return vec4(SRGBToLinear(param), c.w);
+}
+
+vec4 ConvertToScreen(vec4 c)
+{
+    if (predefined_uniform.z == 0.0)
+    {
+        return c;
+    }
+    vec4 param = c;
+    return SRGBToLinear(param);
+}
+
+
+
+
+vec2 GetUV(vec2 uv)
+{
+	uv.y = mUVInversedBack.x + mUVInversedBack.y * uv.y;
+	return uv;
+}
+
+vec2 GetUVBack(vec2 uv)
+{
+	uv.y = mUVInversedã§ù¾†™ß	P€q

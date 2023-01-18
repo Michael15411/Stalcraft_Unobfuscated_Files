@@ -1,0 +1,8 @@
+#version 120
+
+const vec3 CIRCLE_COLOR = vec3(1., 1., 1.);
+varying vec2 uv;
+
+void main() {
+	gl_FragColor = vec4(CIRCLE_COLOR * 0.85, 1.0 - abs(uv.y - 0.5) * 2.0 - abs(uv.x));
+}

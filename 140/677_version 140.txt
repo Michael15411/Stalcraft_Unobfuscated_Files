@@ -1,0 +1,157 @@
+#version 140
+#define GLSL130 1
+#define DIFFUSE_MAPPING 1
+#define NORMAL_MAPPING 1
+#define SPECULAR_MAPPING 1
+#define GLOSS_MAPPING 0
+#define EMISSION_MAPPING 0
+#define SPECULAR_LIGHTING 1
+#define ANIMATION 1
+#define ALPHA_BLENDING 0
+#define COLOURFUL_SPECULAR 0
+#define REFLECTION 0
+#define FORCE_PER_PIXEL_LIGHTING 1
+#define ALPHA_TRANSPARENCY 1
+#define NUM_MAPS 2
+#define WEIGHTS_PER_VERTEX 3
+#define LIGHTING_MODEL 2
+#define NUM_BONES 64
+#define REFLECTION 0
+#define FRESNEL 0
+#define VERTEX_COLORS 0
+#define HAS_CUSTOM_MAP 0
+#define BLOOM 1
+#define DEBUG_NORMALS 0
+#define NUM_LIGHTS 2
+#line 1
+#define PER_PIXEL_LIGHTING NORMAL_MAPPING || REFLECTION || FORCE_PER_PIXEL_LIGHTING
+
+in vec2 textureCoords;
+
+#if VERTEX_COLORS
+    in vec4 vertexColor;
+#endif
+
+#if PER_PIXEL_LIGHTING
+	//these vectors are in tangent space if NORMAL_MAPPING is enabled and in camera space if isn't
+	#if SPECULAR_LIGHTING || REFLECTION
+		in vec3 eyeDirection;
+	#endif
+	in vec3 oN;
+	#if NORMAL_MAPPING
+		in vec3 oT;
+		in vec3 oB;
+	#endif
+	in vec3 lightDirection1;
+	#if NUM_LIGHTS >= 2
+		in vec3 lightDirection2;
+	#endif
+	#if REFLECTION
+		//in mat3 normalToWorldMatrix;
+		uniform samplerCube envMap;
+		uniform float reflectionFactor;
+		uniform float reflectionGloss;
+		const float maxLod = 8.0;
+		#if FRESNEL
+			uniform float fresnelBias;
+			uniform float fresnelScale;
+			uniform float fresnelPower;
+		#endif
+	#endif
+#else
+	in float diffuseTerm;
+	#if SPECULAR_LIGHTING
+		in float specularTerm;
+	#endif
+#endif
+
+#if DEBUG_NORMALS
+    in vec3 debugNormal;
+#endif
+
+#if NUM_MAPS > 0
+	uniform sampler2D usedTextures[NUM_MAPS];
+#endif
+
+#if DIFFUSE_MAPPING
+	uniform int diffuseMap;
+#endif
+#if NORMAL_MAPPING
+	uniform int normalMap;
+#endif
+#if VERTEX_COLORS
+    uniform int vertexColorsAsDiffuse;
+#endif
+#if SPECULAR_MAPPING
+	uniform int specularMap;
+	#if !COLOURFUL_SPECULAR
+		uniform int specularChannel;
+	#endif
+#endif
+#if GLOSS_MAPPING
+	uniform int glossMap;
+	uniform int glossChannel;
+#endif
+#if EMISSION_MAPPING
+	uniform int emissionMap;
+	uniform int emissionChannel;
+    uniform float emissionGlow;
+#endif
+
+#if BLOOM
+    uniform float emissionMix;
+#endif
+
+#if HAS_CUSTOM_MAP
+    uniform int customMap;
+#endif
+
+
+uniform vec3 diffuseColor;
+uniform vec3 ambientColor;
+#if SPECULAR_LIGHTING
+	uniform vec3 specularColor;
+#endif
+uniform float ambientBrightness;
+uniform vec3 lightmapColor;
+uniform vec2 lightmapUv;
+
+#if SPECULAR_LIGHTING && PER_PIXEL_LIGHTING
+	uniform float specularExponent;
+#endif
+#if ALPHA_BLENDING
+    uniform float alphaFactor;
+    uniform float burnFactor;
+#endif
+
+uniform float rain;
+
+// fog support
+in vec3 fragment3DPos;
+in vec3 fragment3DPosModel;
+
+
+#define FOG 1
+#if FOG
+    uniform vec3 playerPos; // I won't change this
+
+    uniform float g_FogSkylightInfluence;
+    uniform float g_SkylightAtPlayer;
+
+    uniform vec3 g_FogColorNear;
+    uniform vec3 g_FogColorFar;
+    uniform float g_FogFarColorDistance;
+
+    uniform float g_FogStartDistance;
+    uniform float g_FogLocationHeight;
+    uniform float g_FogHeightFalloff;
+
+    uniform float g_FogDensity;
+    uniform float g_MaxFogAmount;
+
+    uniform float g_FogDirectionalInscatteringExp; // 0.0 - 4.0 is OK range
+    uniform float g_FogDirectionalInscatteringStartDist;
+    uniform vec3 g_FogDirectionalInscaterringColor;
+    uniform vec3 g_SunDir;
+
+    // if fog is outdoor-based, the indoor fog will get density bonus+S°î

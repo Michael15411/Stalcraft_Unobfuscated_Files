@@ -1,0 +1,27 @@
+#version 110
+
+uniform sampler2D textureSampler;
+uniform vec2 offset;
+
+varying vec2 uv;
+
+void main() {
+    vec4 color   = 5.0 * texture2D(textureSampler, uv - offset);
+    color       += 6.0 * texture2D(textureSampler, uv);
+    color       += 5.0 * texture2D(textureSampler, uv + offset);
+    gl_FragColor = color / 16.0;
+}
+
+/**
+# Blender MCMTL File: 'dekor_sk.blend'
+# Material Count: 1
+
+newmtl body
+ambient color 0.75 0.75 0.75
+diffuse color 0.6 0.6 0.6
+diffuse map props.dds
+lighting model 1
+ambient brightness 1
+emission map props_emis.dds
+emission glow 0.75
+*/

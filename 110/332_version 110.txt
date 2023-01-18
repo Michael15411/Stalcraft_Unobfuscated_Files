@@ -1,0 +1,22 @@
+#version 110
+
+uniform sampler2D sceneSampler;
+uniform sampler2D bloom_0;
+uniform sampler2D bloom_1;
+uniform sampler2D bloom_2;
+uniform sampler2D bloom_3;
+uniform sampler2D bloom_4;
+
+varying vec2 uv;
+
+void main() {
+	gl_FragColor = vec4(1.0, 0.0, 0.0, 1.0);
+	vec4 sceneColor = texture2D(sceneSampler, uv);
+	vec4 bloomColor = 1.01 * texture2D(bloom_0, uv);
+    bloomColor += 1.01 * texture2D(bloom_1, uv);
+    bloomColor += 1.01 * texture2D(bloom_2, uv);
+    bloomColor += 1.01 * texture2D(bloom_3, uv);
+    bloomColor += 1.01 * texture2D(bloom_4, uv);
+    bloomColor *= 2.5;
+	gl_FragColor = vec4(max(vec3(0.0), min(vec3(1.0), sceneColor.rgb + bloomColor.rgb)), 1.0);
+}

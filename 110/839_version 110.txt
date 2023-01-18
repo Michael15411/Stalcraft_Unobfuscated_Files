@@ -1,0 +1,141 @@
+#version 110
+#define FANCY_LENS 1
+#define MODE IR_VISION
+#line 1
+#define NIGHT_VISION 1
+#define IR_VISION 2
+
+uniform vec2 iResolution;
+uniform float iGlobalTime;
+
+uniform vec3 nv_AddColor;
+uniform vec3 nv_ScreenColor;
+
+uniform sampler2D screenTexture;
+#if MODE == IR_VISION
+    uniform sampler2D irMask;
+    uniform sampler2D depthTexture;
+    uniform float far;
+    uniform float irDistance;
+#endif
+
+varying vec2 textureCoord;
+
+float magic(vec2 seed, float time) {
+    float x = (seed.x / 3.14159 + 4.0) * (seed.y / 13.0 + 4.0) * ((fract(time) + 1.0) * 10.0);
+    return mod((mod(x, 13.0) + 1.0) * (mod(x, 123.0) + 1.0), 0.01) - 0.005;
+}
+
+void gray(inout vec3 color, in float grayAmount) {
+    if (grayAmount > 0.0) {
+        float gray = dot(color, vec3(0.299, 0.587, 0.114));
+        color = mix(color, vec3(gray), grayAmount);
+    }
+}
+
+void grid(inout vec3 color) {
+    float gridx = step(3.0, mod(gl_FragCoord.x, 4.0));
+    float gridy = step(3.0, mod(gl_FragCoord.y, 4.0));
+    color = color * mix(vec3(1.0), vec3(0.0), max(gridx, gridy) * 0.3);
+}
+
+#if MODE == NIGHT_VISION
+    void overlay_Nv(inout vec3 color, in vec2 uv, in vec2 overlayUv, in float time) {
+        color += nv_AddColor;
+        color *= nv_ScreenColor;
+
+        // noise
+        float noise = magic(overlayUv * 16.0, time) * 512.0;
+        color *= 1.0 + abs(noise) * 0.09;
+
+        // scanline
+        color *= 1.0 - sin(overlayUv.y * iResolution.y * 1.75) * 6.5 * 0.01;
+    }
+#endif
+
+#if MODE == IR_VISION
+    vec3 ir_passBright(in vec3 color, float mask) {
+        gray(color, 1.0);
+        color = color * 0.7;
+        color = mix(color, vec3(0.8) + color * 1.0, mask);
+        return (1.0 - color);
+    }
+
+    vec3 ir_passDark(in vec3 color, float mask) {
+        float lightAmount = 0.335 + mask * 0.35;
+        gray(color, 1.0);
+        return (1.0 - color) * lightAmount + lightAmount * 0.45;
+    }
+
+    void overlay_Ir(inout vec3 color, in vec2 uv, in vec2 overlayUv, in float time) {
+        vec3 tmp = color;
+        vec2 pixelSize = vec2(1.0) / iResolution;
+        float mask0 = texture2D(irMask, uv + pixelSize * 0.5).r;
+        float mask1 = texture2D(irMask, uv - pixelSize * 0.5).r;
+        float mask = min(1.0, mask0 + mask1);
+
+        float near = 0.05;
+        float sceneZ = texture2D(depthTexture, uv).x;
+        sceneZ = (2.0 * near) / (far + near - sceneZ * (far - near));
+
+        float levels = 2.0;
+        float z = smoothstep(irDistance, irDistance + 0.5, sceneZ * 128.0);
+        z += max(0.0, magic(uv, floor(iGlobalTime * 4.0) / 4.0) * 64.0);
+        mask *= 1.0 - floor(z * levels) / levels;
+
+        float ratio = iResolution.x / iResolution.y;
+        vec2 dt = min(vec2(0.005), abs(vec2(0.5) - uv) * vec2(ratio, 1.0) * 0.015);
+
+        vec3 colorR = texture2D(screenTexture, uv - dt).rgb;
+        vec3 colorG = texture2D(screenTexture, uv).rgb;
+        vec3 colorB = texture2D(screenTexture, uv + dt).rgb;
+
+        color = vec3(ir_passBright(colorR, mask).r,
+            ir_passBright(colorG, mask).g,
+            ir_passBright(colorB, mask).b);
+
+        color = (1.0 - smoothstep(0.3, 0.3025, abs(0.5 - overlayUv.y))) * color;
+        grid(color);
+        color *= mix(vec3(1.0), vec3(1.02, 1.181, 1.151), 0.75);;
+    }
+#endif
+
+void main() {
+    #if MODE == IR_VISION
+        float pixelSize = 4.0;
+    #else
+        float pixelSize = 1.0;
+    #endif
+    vec2 newTex = vec2(ivec2(textureCoord * iResolution / pixelSize)) / iResolution * pixelSize;
+    vec2 uv = newTex;
+    vec2 overlayUv = textureCoord;
+
+    vec3 origColor = vec3(0.0);
+    #if FANCY_LENS
+        float ratio = iResolution.x / iResolution.y;
+        vec2 dt = (vec2(0.5) - uv) * vec2(ratio, 1.0);
+        float distortionAmount = smoothstep(0.25, 0.425, length(dt));
+
+        uv += dt * distortionAmount * 0.035;
+
+        vec2 uvR = uv - dt * distortionAmount * 0.01;
+        vec2 uvG = uv;
+        vec2 uvB = uv + dt * distortionAmount * 0.01;
+
+        vec3 color = texture2D(screenTexture, uv).rgb;
+    #else
+        vec3 color = texture2D(screenTexture, uv).rgb;
+    #endif
+    vec3 abb = color - origColor;
+
+    #if MODE
+        #if MODE == NIGHT_VISION
+            overlay_Nv(color, uv, overlayUv, iGlobalTime);
+        #elif MODE == IR_VISION
+            overlay_Ir(color, uv, overlayUv, iGlobalTime);
+        #endif
+    #endif
+
+	color = min(vec3(1.0), max(vec3(0.0), color));
+    gl_FragColor = vec4(color, 1.0);
+}

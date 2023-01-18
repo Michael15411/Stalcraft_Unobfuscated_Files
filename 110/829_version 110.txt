@@ -1,0 +1,28 @@
+#version 110
+
+#define PI 3.1415926
+uniform vec2 center;
+uniform float time;
+uniform vec3 color;
+uniform float raysSize;
+
+void main(){
+    vec2 pos = gl_FragCoord.xy;
+
+    vec2 delta = center - pos;
+
+    float scale = pow(clamp(time / 50., 0., 1.), 2.);
+
+    float light = (70. + 10. * abs(sin(time / 30.))) * scale;
+    float intensity = light / length(delta);
+
+    vec4 mainColor = vec4(color, 1.) * intensity * (.5 + raysSize * .5);
+
+    float theta = -atan(delta.y, delta.x) + PI + time / 500.;
+    float rays = smoothstep(.4, .6, sin(theta * 20.) + .5) * scale * raysSize;
+
+    mainColor.rgb += mainColor.rgb * rays * 1.5;
+    mainColor.a += rays * (1. / 16.);
+
+    gl_FragColor = mainColor;
+}

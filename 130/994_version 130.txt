@@ -1,0 +1,39 @@
+#version 130
+#define ALPHA_REF 0.0039
+#define LIGHTING 0
+#define BURN 0
+#line 1
+
+out vec2 textureCoord;
+out vec2 lightCoord;
+out vec4 vertexColor;
+out vec3 pixelWorldPos;
+
+#if LIGHTING
+    out vec4 diff;
+
+    void PointLight(in int i, in vec3 eye, in vec3 normal, inout vec4 diffuse){
+        vec3 VP = vec3(gl_LightSource[i].position);
+        diffuse += max(0.0, dot(normal, VP));
+    }
+#endif
+
+uniform mat4 invViewMatrix;
+
+void main() {
+    #if LIGHTING
+        vec3 normal = normalize(gl_NormalMatrix * gl_Normal);
+        vec3 eye = vec3(0.0, 0.0, 1.0);
+        vec4 diffuse = vec4(0.0);
+        PointLight(0, eye, normal, diffuse);
+        PointLight(1, eye, normal, diffuse);
+        diff = min(diffuse, vec4(1.0));
+    #endif
+
+    pixelWorldPos = (invViewMatrix * (gl_ModelViewMatrix * gl_Vertex)).xyz;
+	textureCoord = gl_MultiTexCoord0.st;
+	lightCoord = (gl_MultiTexCoord1.st + vec2(8.0)) / 256.0; // wtf is that transformation, blyat
+	vertexColor = gl_Color.xyzw;
+
+	gl_Position = gl_ProjectionMatrix * gl_ModelViewMatrix * gl_Vertex;
+}

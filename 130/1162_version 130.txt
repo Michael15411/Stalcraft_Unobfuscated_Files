@@ -1,0 +1,4 @@
+#version 130
+#include effects:module/fog.frag
+
+#define ALPHA_REF 0.0039

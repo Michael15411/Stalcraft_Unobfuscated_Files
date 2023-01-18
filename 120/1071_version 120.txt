@@ -1,0 +1,16 @@
+#version 120
+
+uniform sampler2D texture;
+uniform float time;
+uniform vec3 brightColor;
+
+varying vec2 uv;
+
+void main(){
+    vec4 original = texture2D(texture, uv);
+
+	float t = max(0.0, 1.0 - abs(uv.x - (uv.y * 0.25) + 0.03 - time) * 9.0) * 0.0035;
+    vec4 new = vec4(mix(original.rgb, brightColor, t * original.a * original.a), original.a);
+
+    gl_FragColor = new;
+}

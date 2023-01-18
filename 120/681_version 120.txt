@@ -1,0 +1,22 @@
+#version 120 
+uniform sampler2D image; 
+uniform vec2 pixelOffset; 
+
+varying vec2 textureCoord;
+
+void main() {
+	vec2 uv = vec2(textureCoord);
+	vec2 offset = vec2(0.0);
+	vec3 color = vec3(0.0);
+	offset = 0.6557995 * pixelOffset; 
+	color += (texture2D(image, uv + offset).rgb + texture2D(image, uv - offset).rgb) * 0.18070596;
+	offset = 2.43965 * pixelOffset; 
+	color += (texture2D(image, uv + offset).rgb + texture2D(image, uv - offset).rgb) * 0.18284082;
+	offset = 4.39254 * pixelOffset; 
+	color += (texture2D(image, uv + offset).rgb + texture2D(image, uv - offset).rgb) * 0.09422585;
+	offset = 6.347349 * pixelOffset; 
+	color += (texture2D(image, uv + offset).rgb + texture2D(image, uv - offset).rgb) * 0.03323524;
+	offset = 8.30475 * pixelOffset; 
+	color += (texture2D(image, uv + offset).rgb + texture2D(image, uv - offset).rgb) * 0.008019884;
+	gl_FragColor = vec4(color, 1.0);
+}

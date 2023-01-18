@@ -1,0 +1,48 @@
+#version 140
+
+uniform vec4 coveredColor;
+uniform vec4 borderColor;
+uniform float borderSize;
+uniform vec2 center;
+uniform float radius;
+uniform vec2 innerCircleCenter;
+uniform float innerRadius;
+uniform float isInnerStipple;
+uniform float mapZoom;
+
+uniform sampler2D pattern;
+
+#define PI 3.1415
+
+void main(){
+    vec2 pos = gl_FragCoord.xy;
+    float dis = distance(pos, center);
+
+    vec2 k = pos - innerCircleCenter;
+    float a = atan(k.y, k.x);
+    if(a < 0.) a += PI * 2.;
+    float f = sin(a * 60. * borderSize * (mapZoom * innerRadius) * 0.01);
+    float stipple = max(1. - isInnerStipple, step(0., f) * smoothstep(0., .05, f));
+
+    float b = 2.;
+    float border = smoothstep(radius - b, radius, dis)
+             - smoothstep(radius + borderSize, radius + borderSize + b, dis);
+    float cover = smoothstep(radius - b, radius, dis);
+
+    float innerCircleDistance = distance(pos, innerCircleCenter);
+    float innerCircle = smoothstep(innerRadius - b, innerRadius, innerCircleDistance)
+            - smoothstep(innerRadius + borderSize, innerRadius + borderSize + b, innerCircleDistance);
+
+    float s = 8.;
+    vec2 uv = fract((pos) / s);
+    vec4 pattern = texture(pattern, vec2(uv.x, 1. - uv.y));
+    pattern.a *= .7;
+
+    vec4 covered = coveredColor * (1. - pattern.a) + pattern * pattern.a;
+    covered *= cover;
+
+    vec4 bordered = max(innerCircle * .95 * stipple, border) * borderColor * step(0.01, radius);
+    vec4 color = covered * (1. - bordered.a) + bordered * bordered.a;
+
+    gl_FragColor = color;
+}

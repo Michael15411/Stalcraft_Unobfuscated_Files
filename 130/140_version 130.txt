@@ -1,0 +1,47 @@
+#version 130
+
+uniform vec2 m_resolution;
+uniform float m_time;
+uniform sampler2D m_texture0;
+uniform sampler2D m_textureDepth;
+uniform float g_SkylightAtPlayer;
+
+uniform vec3 m_cloud_color;
+uniform vec2 m_cloud_fade;
+uniform float m_cloud_depthFade;
+uniform float m_cloud_fadeOrigin;
+
+uniform float m_cloud_weight;
+
+in vec2 uv;
+in vec2 uvO;
+in float alpha;
+
+
+void main() {
+    vec4 sceneDepth = texture(m_textureDepth, gl_FragCoord.xy / m_resolution);
+    float particleDepth = gl_FragCoord.z;
+
+    float near = 0.05;
+    float far = 256.0;
+    float sceneZ = (2 * near) / (far + near - sceneDepth.x * (far - near));
+    float particleZ = (2 * near) / (far + near - particleDepth * (far - near));
+
+    float depth = (sceneZ - particleZ) * 2500.0 / m_cloud_depthFade;
+    float f = 0.5 * clamp(2.0 *((depth > 0.5) ? 1.0 - depth : depth), 0.0, 1.0);
+    float weight = (depth > 0.5) ? 1.0 - f : f;
+
+    vec4 color = texture(m_texture0, uv);
+   // color.rgb *= 0.5;
+
+    color.rgb *= m_cloud_color;
+    //color.rgb *= vec3(1.1, 0.9, 0.6) * 0.8;
+    //color.rgb *= vec3(1.2, 0.45, 0.3) * 0.5;
+    //color.a *= 1.0 - 0.99 * smoothstep(0.15, 0.2, abs(0.25 - uvO.y));
+    float fade = smoothstep(m_cloud_fade.x, m_cloud_fade.y, abs(m_cloud_fadeOrigin - uvO.y));
+    color.rgb = mix(color.rgb, m_cloud_color * 0.75, fade);
+    color.a = mix(color.a, 0.65, fade);
+   // color.a *= 1.0 - step(0.2, abs(0.25 - uvO.y));
+    color.a *= color.a * 0.5 * alpha * pow(weight, 1.5) * pow(g_SkylightAtPlayer, 1.0) * m_cloud_weight;
+    gl_FragColor = color;
+}

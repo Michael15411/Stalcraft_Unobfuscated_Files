@@ -1,0 +1,15 @@
+#version 110
+uniform float interval;
+uniform vec2 resolution;
+
+void main(){
+    vec2 uv = gl_FragCoord.xy / resolution.xy;
+    vec4 color =  vec4(0.129, 0.125, 0.121, 1.0);
+    vec4 colorSecond = vec4(0.070, 0.070, 0.070, 1.0);
+    float a = step(mod(gl_FragCoord.x - gl_FragCoord.y, interval) / (interval - 1.0), 0.5);
+    if (a > 0.0){
+        gl_FragColor = color;
+    } else {
+        gl_FragColor = colorSecond;
+    }
+}

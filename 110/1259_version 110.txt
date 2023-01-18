@@ -1,0 +1,4 @@
+#version 110
+
+void main() {
+    vec2 pos = gl_FragCoord.xy/8.0;%

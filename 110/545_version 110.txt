@@ -1,0 +1,7 @@
+#version 110
+#define GL40 0
+#line 1
+
+void main() {
+    gl_FragColor = vec4(vec3(0.0), 1.0);
+}

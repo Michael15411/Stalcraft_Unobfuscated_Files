@@ -1,0 +1,10 @@
+#version 110
+
+varying vec2 textureCoord;
+varying vec4 vertexColor;
+
+void main(){
+	textureCoord = gl_MultiTexCoord0.st;
+	vertexColor = gl_Color.xyzw;
+	gl_Position = gl_ProjectionMatrix * gl_ModelViewMatrix * gl_Vertex;
+}

@@ -1,0 +1,288 @@
+#version 140
+#define GLSL130 1
+#define DIFFUSE_MAPPING 1
+#define NORMAL_MAPPING 1
+#define SPECULAR_MAPPING 0
+#define GLOSS_MAPPING 0
+#define EMISSION_MAPPING 0
+#define SPECULAR_LIGHTING 1
+#define ANIMATION 0
+#define ALPHA_BLENDING 0
+#define COLOURFUL_SPECULAR 0
+#define REFLECTION 0
+#define FORCE_PER_PIXEL_LIGHTING 1
+#define ALPHA_TRANSPARENCY 1
+#define NUM_MAPS 2
+#define WEIGHTS_PER_VERTEX 0
+#define LIGHTING_MODEL 2
+#define NUM_BONES 64
+#define REFLECTION 0
+#define FRESNEL 0
+#define VERTEX_COLORS 0
+#define HAS_CUSTOM_MAP 0
+#define BLOOM 1
+#define DEBUG_NORMALS 0
+#define NUM_LIGHTS 2
+#line 1
+#define PER_PIXEL_LIGHTING NORMAL_MAPPING || REFLECTION || FORCE_PER_PIXEL_LIGHTING
+
+in vec4 positionIn;
+in vec2 textureCoordsIn;
+in vec4 normalIn;
+
+#if NORMAL_MAPPING
+	in vec4 tangentIn;
+#endif
+
+#if VERTEX_COLORS
+    in vec4 colorIn;
+#endif
+
+#if ANIMATION
+	#if WEIGHTS_PER_VERTEX <= 2
+	    // x = bone 1 id, y = bone 2 id, z = bone 1 weight, w = bone 2 weight, weights are not normalized
+	    in vec4 animationData;
+	#else
+	    in vec4 animationData; // bone ids
+	    in vec4 weights;
+	#endif
+#endif
+
+out vec2 textureCoords;
+
+#if PER_PIXEL_LIGHTING
+	#if SPECULAR_LIGHTING || REFLECTION
+		out vec3 eyeDirection;
+	#endif
+	out vec3 oN;
+	#if NORMAL_MAPPING
+		out vec3 oT;
+		out vec3 oB;
+	#endif
+	out vec3 lightDirection1;
+	#if NUM_LIGHTS >= 2
+		out vec3 lightDirection2;
+	#endif
+#else
+	out float diffuseTerm;
+	#if SPECULAR_LIGHTING
+		out float specularTerm;
+	#endif
+#endif
+
+#if DEBUG_NORMALS
+    out vec3 debugNormal;
+#endif
+
+#if !PER_PIXEL_LIGHTING && SPECULAR_LIGHTING
+	uniform float specularExponent;
+#endif
+
+#if ANIMATION
+	uniform vec4 qRotations[NUM_BONES];
+	uniform vec3 vTranslations[NUM_BONES];
+    uniform bool animated;
+#endif
+
+uniform mat4 modelMatrix;
+uniform mat4 viewMatrix;
+uniform mat4 projectionMatrix;
+uniform mat3 normalMatrix;
+uniform float quantizationScale;
+uniform float uvQuantizationScale;
+uniform vec2 lightmapUv;
+
+out vec3 fragment3DPos;
+out vec3 fragment3DPosModel;
+
+
+#define SNOW 1
+#if SNOW
+    uniform int m_useSnow;
+#endif
+
+float getSnowMask(float edge, float underwater, float plants, float bias, vec2 lightmap, vec3 n, float slopeSnow) {
+    float _snowMask = 0.0;
+    #if SNOW
+        if (m_useSnow > 0) {
+            float lightThresold = min(1.0, smoothstep(0.8, .95, min(0.95, lightmap.y + bias)));
+            _snowMask = lightThresold * (smoothstep(0.0, 0.4, n.y) + edge) + underwater;
+            _snowMask += step(0.9, lightmap.y) * step(0.01, bias) * 0.825;
+            _snowMask += plants * 0.75;
+            _snowMask = max(0.0, min(1.0, _snowMask));
+            _snowMask -= step(0.9, -n.y);
+            _snowMask -= underwater * 0.5 * edge;
+            _snowMask -= plants * 0.12;
+            _snowMask -= slopeSnow;
+            _snowMask = max(0.0, _snowMask);
+        }
+    #endif
+    return _snowMask;
+}
+
+
+
+#if SNOW
+    out float snowMaskIn;
+#endif
+
+#if VERTEX_COLORS
+    out vec4 vertexColor;
+#endif
+
+vec3 multiply(vec4 q, vec3 p){
+	return p + 2.0 * cross(q.xyz, cross(q.xyz, p) + q.w * p);
+}
+
+void main(){
+	vec3 vertexPos_model;
+	vec3 normal_model;
+	#if NORMAL_MAPPING
+	    vec3 bitangentIn = vec3(positionIn.w, normalIn.w, tangentIn.w);
+		vec3 tangent_model;
+		vec3 bitangent_model;
+	#endif
+
+	#if ANIMATION
+	if (animated) {
+		//==================== LINEAR SKINNING ====================
+		vec3 positionScaled = positionIn.xyz * quantizationScale;
+
+		#if WEIGHTS_PER_VERTEX == 1
+		    int boneIndex = int(animationData.x);
+			vertexPos_model = multiply(qRotations[boneIndex], positionScaled) + vTranslations[boneIndex];
+			normal_model = multiply(qRotations[boneIndex], normalIn.xyz);
+			#if NORMAL_MAPPING
+				tangent_model = multiply(qRotations[boneIndex], tangentIn.xyz);
+				bitangent_model = multiply(qRotations[boneIndex], bitangentIn);
+			#endif
+		#elif WEIGHTS_PER_VERTEX == 2
+		    int b1 = int(animationData.x);
+		    int b2 = int(animationData.y);
+		    float w1 = animationData.z / 255.0;
+		    float w2 = 1.0 - w1;
+
+		    vertexPos_model = (multiply(qRotations[b1], positionScaled) + vTranslations[b1]) * w1 +
+		                      (multiply(qRotations[b2], positionScaled) + vTranslations[b2]) * w2;
+            normal_model = multiply(qRotations[b1], normalIn.xyz) * w1 +
+                           multiply(qRotations[b2], normalIn.xyz) * w2;
+
+            #if NORMAL_MAPPING
+            	tangent_model = multiply(qRotations[b1], tangentIn.xyz) * w1 +
+            	                multiply(qRotations[b2], tangentIn.xyz) * w2;
+            	bitangent_model = multiply(qRotations[b1], bitangentIn) * w1 +
+            	                   multiply(qRotations[b2], bitangentIn) * w2;
+            #endif
+		#else
+			vertexPos_model = vec3(0.0, 0.0, 0.0);
+			normal_model = vec3(0.0, 0.0, 0.0);
+			#if NORMAL_MAPPING
+				tangent_model = vec3(0.0, 0.0, 0.0);
+				bitangent_model = vec3(0.0, 0.0, 0.0);
+			#endif
+
+            vec4 normalizedWeights = weights / dot(weights, vec4(1.0));
+			for (int i = 0; i < WEIGHTS_PER_VERTEX; i++) {
+				int b = int(animationData[i]);
+				float w = normalizedWeights[i];
+				vertexPos_model += (multiply(qRotations[b], positionScaled) + vTranslations[b]) * w;
+				normal_model += multiply(qRotations[b], normalIn.xyz) * w;
+				#if NORMAL_MAPPING
+					tangent_model += multiply(qRotations[b], tangentIn.xyz) * w;
+					bitangent_model += multiply(qRotations[b], bitangentIn) * w;
+				#endif
+			}
+
+		#endif
+	} else {
+	#endif
+		//==================== NO SKINNING ====================
+		vertexPos_model = positionIn.xyz * quantizationScale;
+		normal_model = normalIn.xyz;
+		#if NORMAL_MAPPING
+			tangent_model = tangentIn.xyz;
+			bitangent_model = bitangentIn;
+		#endif
+	#if ANIMATION
+	}
+	#endif
+
+	#if SNOW
+	    snowMaskIn = getSnowMask(0.0, 0.0, 0.0, 0.0, lightmapUv, normalize(normalMatrix * normal_model), 0.0);
+	#endif
+
+    
+
+	vec4 vertexPos_world  = modelMatrix * vec4(vertexPos_model, 1.0);
+	vec4 vertexPos_camera = viewMatrix * vertexPos_world;
+	gl_Position = projectionMatrix * vertexPos_camera;
+	fragment3DPos = vertexPos_world.xyz;
+	fragment3DPosModel = vertexPos_model.xyz;
+
+
+	//==================== LIGHTING ====================
+	#if LIGHTING_MODEL == 1
+		const vec4 light1 = vec4(-0.16169, 0.808452, 0.565916, 0.0);
+	#endif
+	
+	#if LIGHTING_MODEL == 2
+		const vec4 light1 = vec4(-0.16169, 0.808452, 0.565916, 0.0);
+		const vec4 light2 = vec4(0.16169, 0.808452, -0.565916, 0.0);
+	#endif
+
+	#if DEBUG_NORMALS
+	    debugNormal = normalize(normalMatrix * normal_model);
+	#endif
+	#if PER_PIXEL_LIGHTING
+		oN = normalize(normalMatrix * normal_model);
+		#if NORMAL_MAPPING	
+			oT = normalize(normalMatrix * tangent_model);
+			oB = normalize(normalMatrix * bitangent_model);
+		#endif
+		lightDirection1 = light1.xyz;
+		#if NUM_LIGHTS >= 2
+			lightDirection2 = light2.xyz;
+		#endif
+		#if SPECULAR_LIGHTING || REFLECTION
+			eyeDirection = -vertexPos_world.xyz;
+		#endif
+	#else
+		vec3 normal_world = normalize(normalMatrix * normal_model);
+		vec3 eyeDirection_world = -vertexPos_world.xyz;
+		vec3 lightDirection1_world = light1.xyz;
+		#if NUM_LIGHTS >= 2
+			vec3 lightDirection2_world = light2.xyz;
+		#endif
+		#if NUM_LIGHTS == 1
+			diffuseTerm = max(dot(normal_world, lightDirection1_world), 0.0);
+		#elif NUM_LIGHTS == 2
+			diffuseTerm = min(1.0,
+				max(dot(normal_world, lightDirection1_world), 0.0)+
+				max(dot(normal_world, lightDirection2_world), 0.0));
+		#endif
+		
+		#if SPECULAR_LIGHTING
+			vec3 halfDir1 = normalize(lightDirection1_world + eyeDirection_world);
+			float specAngle1 = max(dot(halfDir1, normal_world), 0.0);
+			#if NUM_LIGHTS >= 2
+				vec3 halfDir2 = normalize(lightDirection2_world + eyeDirection_world);
+				float specAngle2 = max(dot(halfDir2, normal_world), 0.0);
+			#endif
+			
+			#if NUM_LIGHTS == 1
+				specularTerm = pow(specAngle1, specularExponent);
+			#elif NUM_LIGHTS == 2
+				specularTerm = min(pow(specAngle1, specularExponent) +
+						pow(specAngle2, specularExponent), 1.0);
+			#endif
+		#endif
+	#endif
+
+	textureCoords = textureCoordsIn * uvQuantizationScale;
+
+	#if VERTEX_COLORS
+	    vertexColor = colorIn;
+	#endif
+
+    
+}

@@ -1,0 +1,17 @@
+#version 130
+
+out vec2 textureCoord;
+out vec2 lightCoord;
+out vec4 vertexColor;
+out vec3 pixelWorldPos;
+
+uniform mat4 invViewMatrix;
+
+void main() {
+    pixelWorldPos = (invViewMatrix * (gl_ModelViewMatrix * gl_Vertex)).xyz;
+	textureCoord = gl_MultiTexCoord0.st;
+	lightCoord = (gl_MultiTexCoord1.st + vec2(8.0)) / 256.0; // wtf is that transformation, blyat
+	vertexColor = gl_Color.xyzw;
+
+	gl_Position = gl_ProjectionMatrix * gl_ModelViewMatrix * gl_Vertex;
+}

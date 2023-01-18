@@ -1,0 +1,4 @@
+#version 130
+#include effects:module/fog.frag
+
+uniform sampler2D tex;

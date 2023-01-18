@@ -1,0 +1,104 @@
+#version 140
+#define GLSL130 1
+#define DIFFUSE_MAPPING 0
+#define NORMAL_MAPPING 0
+#define SPECULAR_MAPPING 0
+#define GLOSS_MAPPING 0
+#define EMISSION_MAPPING 0
+#define SPECULAR_LIGHTING 0
+#define ANIMATION 1
+#define ALPHA_BLENDING 0
+#define COLOURFUL_SPECULAR 1
+#define REFLECTION 0
+#define FORCE_PER_PIXEL_LIGHTING 0
+#define ALPHA_TRANSPARENCY 0
+#define NUM_MAPS 0
+#define WEIGHTS_PER_VERTEX 1
+#define LIGHTING_MODEL 2
+#define NUM_BONES 64
+#define REFLECTION 0
+#define FRESNEL 0
+#define VERTEX_COLORS 0
+#define HAS_CUSTOM_MAP 0
+#define BLOOM 1
+#define DEBUG_NORMALS 0
+#define NUM_LIGHTS 2
+#line 1
+#define PER_PIXEL_LIGHTING NORMAL_MAPPING || REFLECTION || FORCE_PER_PIXEL_LIGHTING
+
+in vec4 positionIn;
+in vec2 textureCoordsIn;
+in vec4 normalIn;
+
+#if NORMAL_MAPPING
+	in vec4 tangentIn;
+#endif
+
+#if VERTEX_COLORS
+    in vec4 colorIn;
+#endif
+
+#if ANIMATION
+	#if WEIGHTS_PER_VERTEX <= 2
+	    // x = bone 1 id, y = bone 2 id, z = bone 1 weight, w = bone 2 weight, weights are not normalized
+	    in vec4 animationData;
+	#else
+	    in vec4 animationData; // bone ids
+	    in vec4 weights;
+	#endif
+#endif
+
+out vec2 textureCoords;
+
+#if PER_PIXEL_LIGHTING
+	#if SPECULAR_LIGHTING || REFLECTION
+		out vec3 eyeDirection;
+	#endif
+	out vec3 oN;
+	#if NORMAL_MAPPING
+		out vec3 oT;
+		out vec3 oB;
+	#endif
+	out vec3 lightDirection1;
+	#if NUM_LIGHTS >= 2
+		out vec3 lightDirection2;
+	#endif
+#else
+	out float diffuseTerm;
+	#if SPECULAR_LIGHTING
+		out float specularTerm;
+	#endif
+#endif
+
+#if DEBUG_NORMALS
+    out vec3 debugNormal;
+#endif
+
+#if !PER_PIXEL_LIGHTING && SPECULAR_LIGHTING
+	uniform float specularExponent;
+#endif
+
+#if ANIMATION
+	uniform vec4 qRotations[NUM_BONES];
+	uniform vec3 vTranslations[NUM_BONES];
+    uniform bool animated;
+#endif
+
+uniform mat4 modelMatrix;
+uniform mat4 viewMatrix;
+uniform mat4 projectionMatrix;
+uniform mat3 normalMatrix;
+uniform float quantizationScale;
+uniform float uvQuantizationScale;
+uniform vec2 lightmapUv;
+
+out vec3 fragment3DPos;
+out vec3 fragment3DPosModel;
+
+
+#define SNOW 1
+#if SNOW
+    uniform int m_useSnow;
+#endif
+
+float getSnowMask(float edge, float underwater, float plants, ì’Ó

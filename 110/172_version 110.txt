@@ -1,0 +1,11 @@
+#version 110
+
+uniform vec2 center;
+uniform vec2 transform;
+uniform float radius;
+
+void main(){
+    float d = length((gl_FragCoord.xy - center) * transform);
+    float f = 1. - smoothstep(0., 1., d / radius);
+    gl_FragColor = gl_Color * f;
+}

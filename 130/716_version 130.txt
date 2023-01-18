@@ -1,0 +1,130 @@
+#version 130
+#define ALPHA_REF 0.1
+#define LIGHTING 1
+#define BURN 0
+#line 1
+#define FOG 1
+#if FOG
+    uniform vec3 playerPos; // I won't change this
+
+    uniform float g_FogSkylightInfluence;
+    uniform float g_SkylightAtPlayer;
+
+    uniform vec3 g_FogColorNear;
+    uniform vec3 g_FogColorFar;
+    uniform float g_FogFarColorDistance;
+
+    uniform float g_FogStartDistance;
+    uniform float g_FogLocationHeight;
+    uniform float g_FogHeightFalloff;
+
+    uniform float g_FogDensity;
+    uniform float g_MaxFogAmount;
+
+    uniform float g_FogDirectionalInscatteringExp; // 0.0 - 4.0 is OK range
+    uniform float g_FogDirectionalInscatteringStartDist;
+    uniform vec3 g_FogDirectionalInscaterringColor;
+    uniform vec3 g_SunDir;
+
+    // if fog is outdoor-based, the indoor fog will get density bonus based on how far the pixel is from the camera
+    // like if the ray was accumulating fog while traversing 'outdoors' environment before entering the indoors
+    const float FOG_INDOOR_BONUS_PEAKDIST = 0.0078125; // 1.0 / 128.0. At 128 blocks all interiors will get fully fogged
+    const float FOG_FAR_EDGE_DIST_INV = 0.01; // 1.0 / 100.0. Distance for far fog color
+#endif
+
+float saturate(float a)
+{
+    return max(0.0, min(1.0, a));
+}
+
+vec3 getFogColor(in vec3 cameraToWorldPos) {
+#if FOG
+    vec3 fogColor = vec3(0.0);
+    vec3 eyeDir = normalize(cameraToWorldPos);
+    float distance = length(cameraToWorldPos) - g_FogStartDistance;
+
+    // fog color is mixing over the distance between start and end color
+    float distanceColorWeight = max(0.0, min(1.0, distance / g_FogFarColorDistance));
+    fogColor = mix(g_FogColorNear, g_FogColorFar, distanceColorWeight);
+
+    float directionalConeAngle = 1.0 + dot(eyeDir, g_SunDir);
+    float inscatteringFactor = pow(saturate(dot(eyeDir, -g_SunDir)), g_FogDirectionalInscatteringExp);
+    float inscatteringDistanceFactor = max(0.0, min(1.0, (distance - g_FogDirectionalInscatteringStartDist) / max(0.1, g_FogDirectionalInscatteringStartDist)));
+    fogColor += g_FogDirectionalInscaterringColor * inscatteringFactor * inscatteringDistanceFactor;
+
+    return fogColor;
+#else
+    return vec3(1.0);
+#endif
+}
+
+float ComputeVolumetricFog(in vec3 cameraToWorldPos, in float skylightAtPos) {
+#if FOG
+    float fog = 0.0;
+    float distanceToPixel = length(cameraToWorldPos) - g_FogStartDistance;
+
+    // compute integral to get height fog
+    vec3 cViewPos = playerPos - vec3(0.0, g_FogLocationHeight, 0.0);
+    float cVolFogHeightDensityAtViewer = exp(-g_FogHeightFalloff * cViewPos.y);
+    float fogInt = distanceToPixel * cVolFogHeightDensityAtViewer;
+    float t = g_FogHeightFalloff * cameraToWorldPos.y;
+    fogInt *= (1.0 - exp(-t)) / t;
+    float exponentialFogAmount = 1.0 - exp(-g_FogDensity * fogInt);
+
+    // if fog is outdoor-based, it will take into account the skylight factor at pixel position
+    // skylight factor is a mixture of skylight at pixel position and skylight the player character receives
+    // this helps with indoors/outdoors transitions, so there is no abrupt change in fog density
+    float indoorFogBonus = distanceToPixel * FOG_INDOOR_BONUS_PEAKDIST;
+    float skylightFactor = min(1.0, (skylightAtPos * 0.5 + indoorFogBonus) + g_SkylightAtPlayer * 0.75);
+    fog = g_MaxFogAmount * max(0.0, min(1.0, exponentialFogAmount));
+    fog = (1.0 - g_FogSkylightInfluence) * fog + g_FogSkylightInfluence * skylightFactor * fog;
+
+    return fog;
+#else
+    return 0.0;
+#endif
+}
+
+vec3 ComputeVolumetricFog(in vec3 rgb, in vec3 cameraToWorldPos, in float skylightAtPos) {
+#if FOG
+    vec3 newColor = mix(rgb, getFogColor(cameraToWorldPos), ComputeVolumetricFog(cameraToWorldPos, skylightAtPos));
+    return newColor;
+#else
+    return vec3(rgb);
+#endif
+}
+
+
+
+uniform sampler2D tex;
+uniform sampler2D lightMap;
+
+in vec2 textureCoord;
+in vec2 lightCoord;
+in vec4 vertexColor;
+in vec3 pixelWorldPos;
+
+#if LIGHTING
+    in vec4 diff;
+#endif
+
+void main() {
+    vec4 pixel = texture2D(tex, textureCoord);
+    pixel.xyz *= texture2D(lightMap, lightCoord).xyz;
+    pixel = pixel * vertexColor;
+    #if LIGHTING
+        // simulates vanilla lighting
+        pixel.rgb = (0.4 + diff.xyz * 0.6) * pixel.rgb;
+    #endif
+    #if BURN
+        vec3 _fogColor = getFogColor(pixelWorldPos);
+        float _fogAmount = ComputeVolumetricFog(pixelWorldPos, lightCoord.y);
+        pixel.rgb *= pixel.a;
+        pixel.a = 0.0; // additive blend
+        pixel.rgb =  mix(pixel.rgb, _fogColor * pixel.a * _fogAmount, _fogAmount);
+        pixel.a = mix(pixel.a, pixel.a * _fogAmount, _fogAmount);
+    #else
+        pixel.rgb = ComputeVolumetricFog(pixel.rgb, pixelWorldPos, lightCoord.y);
+    #endif
+	gl_FragColor = pixel;
+}

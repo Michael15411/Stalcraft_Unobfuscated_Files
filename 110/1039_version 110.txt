@@ -1,0 +1,13 @@
+#version 110
+
+uniform float intensity;
+uniform float extend;
+
+varying vec2 uv;
+
+void main(){
+    vec2 c = uv * (1.0 - uv.yx);
+
+    float vig = pow(c.x * c.y * intensity, extend);
+    gl_FragColor = vec4(gl_Color.rgb, gl_Color.a * (1.0 - vig));
+}

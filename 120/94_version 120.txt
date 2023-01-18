@@ -1,0 +1,43 @@
+#version 120
+
+const int NUM_SAMPLES = 128;
+
+uniform float decay;
+uniform float exposure;
+uniform float density;
+uniform float weight;
+uniform vec3 raysColor;
+
+uniform sampler2D occlusionTexture;
+uniform sampler2D sceneTexture;
+
+uniform vec2 lightPos;
+
+varying vec2 textureCoord;
+
+//const vec4 raysColorMult = vec4(0.2, 0.3, 0.5, 1.0) * 2.5; // moonwwwww2wasd
+const vec4 raysColorMult = vec4(1.5, 1.0, 0.9, 1.0) * 1.185; // sun
+
+void main() {
+	vec2 tc = textureCoord;
+	vec2 deltaTexCoord = vec2(tc - lightPos.xy);
+
+	deltaTexCoord *= 1.0 /  float(NUM_SAMPLES) * density;
+	float illuminationDecay = 1.0;
+
+	vec4 color = texture2D(occlusionTexture, tc);
+
+	for (int i = 0; i < NUM_SAMPLES; i++) {
+		tc -= deltaTexCoord;
+		vec4 pixel = texture2D(occlusionTexture, tc);
+		pixel *= illuminationDecay * weight;
+		illuminationDecay *= decay;
+		color += pixel;
+	}
+
+    vec4 sceneColor = texture2D(sceneTexture, textureCoord);
+    float a = max(0.0, min(1.25, length(sceneColor.xyz) * 1.0 + 0.6));
+
+	gl_FragColor = vec4(sceneColor + color * vec4(raysColor, 1.0) * raysColorMult * exposure * a);
+	gl_FragColor.a = 1.0;
+}

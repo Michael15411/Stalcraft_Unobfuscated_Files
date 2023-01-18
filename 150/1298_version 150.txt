@@ -1,0 +1,26 @@
+#version 150
+uniform bool bFlipRendering;
+uniform int srcWidth;
+uniform int srcHeight;
+out vec2 textCoord;
+const vec2 screenAlignedQuad[4] = vec2[]
+(
+	vec2(-1.0,  1.0),
+	vec2( 1.0,  1.0),
+	vec2(-1.0, -1.0),
+	vec2( 1.0, -1.0)
+);
+const vec2 textureCoords[4] = vec2[]
+(
+	vec2( 0.0,  0.0),
+	vec2( 1.0,  0.0),
+	vec2( 0.0,  1.0),
+	vec2( 1.0,  1.0)
+);
+void main()
+{
+   gl_Position = vec4( screenAlignedQuad[ gl_VertexID ], 0.0, 1.0);
+   if ( bFlipRendering )
+       gl_Position.y = -gl_Position.y;
+   textCoord = vec2( textureCoords[ gl_VertexID ].x * srcWidth, textureCoords[ gl_VertexID ].y * srcHeight );
+}

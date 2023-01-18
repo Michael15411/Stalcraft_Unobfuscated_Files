@@ -1,0 +1,10 @@
+#version 110
+#define USE_2D_LUT 0
+#line 1
+
+varying vec2 textureCoord;
+
+void main(){
+	textureCoord = gl_MultiTexCoord0.st;
+	gl_Position = gl_ProjectionMatrix * gl_ModelViewMatrix * gl_Vertex;
+}

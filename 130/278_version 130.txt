@@ -1,0 +1,264 @@
+#version 130
+#define MAX_BLOCK_HEIGHT 3.0
+#define DEBUG_NORMALS 0
+#define ANIMATED 1
+#line 1
+#define THROW_MARK 1
+#define WARN_MARK 1
+
+centroid in vec2 uv;
+centroid in vec2 lightmapUv;
+
+in vec3 bakedAo;
+in vec3 worldPos;
+in vec3 pos;
+
+#if ANIMATED
+    centroid in vec2 nextFrameUv;
+    in float animated;
+#endif
+
+uniform float partialFrame;
+uniform sampler2D atlasTextureId;
+uniform sampler2D animationAtlasTextureId;
+uniform sampler2D lightMapTextureId;
+uniform sampler3D lut;
+
+// hooks would be the best solution here
+#if THROW_MARK
+    uniform vec3 throwCirclePos;
+    uniform vec2 throwCircleSize; // inner radius, outer radius
+    const float CIRCLE_BORDER = 0.1;
+    const vec3 CIRCLE_COLOR = vec3(1., 1., 1.);
+    flat in int drawCircle;
+#endif
+
+#if WARN_MARK
+    const vec3 WARN_COLOR = vec3(249.0, 46.0, 27.0) / 255.0;
+    uniform vec4 warnPos;
+    flat in int drawWarn;
+#endif
+
+in vec3 normal;
+
+out vec4 finalColor;
+#if DEBUG_NORMALS
+    out vec4 debugNormalColor;
+#endif
+
+uniform vec3 playerPos;
+#define FOG 1
+#if FOG
+
+    uniform float g_FogSkylightInfluence;
+    uniform float g_SkylightAtPlayer;
+
+    uniform vec3 g_FogColorNear;
+    uniform vec3 g_FogColorFar;
+    uniform float g_FogFarColorDistance;
+
+    uniform float g_FogStartDistance;
+    uniform float g_FogLocationHeight;
+    uniform float g_FogHeightFalloff;
+
+    uniform float g_FogDensity;
+    uniform float g_MaxFogAmount;
+
+    uniform float g_FogDirectionalInscatteringExp; // 0.0 - 4.0 is OK range
+    uniform float g_FogDirectionalInscatteringStartDist;
+    uniform vec3 g_FogDirectionalInscaterringColor;
+    uniform vec3 g_SunDir;
+
+    // if fog is outdoor-based, the indoor fog will get density bonus based on how far the pixel is from the camera
+    // like if the ray was accumulating fog while traversing 'outdoors' environment before entering the indoors
+    const float FOG_INDOOR_BONUS_PEAKDIST = 0.0078125; // 1.0 / 128.0. At 128 blocks all interiors will get fully fogged
+    const float FOG_FAR_EDGE_DIST_INV = 0.01; // 1.0 / 100.0. Distance for far fog color
+#endif
+
+float saturate(float a)
+{
+    return max(0.0, min(1.0, a));
+}
+
+vec3 getFogColor(in vec3 cameraToWorldPos) {
+#if FOG
+    vec3 fogColor = vec3(0.0);
+    vec3 eyeDir = normalize(cameraToWorldPos);
+    float distance = length(cameraToWorldPos) - g_FogStartDistance;
+
+    // fog color is mixing over the distance between start and end color
+    float distanceColorWeight = max(0.0, min(1.0, distance / g_FogFarColorDistance));
+    fogColor = mix(g_FogColorNear, g_FogColorFar, distanceColorWeight);
+
+    float directionalConeAngle = 1.0 + dot(eyeDir, g_SunDir);
+    float inscatteringFactor = pow(saturate(dot(eyeDir, -g_SunDir)), g_FogDirectionalInscatteringExp);
+    float inscatteringDistanceFactor = max(0.0, min(1.0, (distance - g_FogDirectionalInscatteringStartDist) / max(0.1, g_FogDirectionalInscatteringStartDist)));
+    fogColor += g_FogDirectionalInscaterringColor * inscatteringFactor * inscatteringDistanceFactor;
+
+    return fogColor;
+#else
+    return vec3(1.0);
+#endif
+}
+
+float ComputeVolumetricFog(in vec3 cameraToWorldPos, in float skylightAtPos) {
+#if FOG
+    float fog = 0.0;
+    float distanceToPixel = length(cameraToWorldPos) - g_FogStartDistance;
+
+    // compute integral to get height fog
+    vec3 cViewPos = playerPos - vec3(0.0, g_FogLocationHeight, 0.0);
+    float cVolFogHeightDensityAtViewer = exp(-g_FogHeightFalloff * cViewPos.y);
+    float fogInt = distanceToPixel * cVolFogHeightDensityAtViewer;
+    float t = g_FogHeightFalloff * cameraToWorldPos.y;
+    fogInt *= (1.0 - exp(-t)) / t;
+    float exponentialFogAmount = 1.0 - exp(-g_FogDensity * fogInt);
+
+    // if fog is outdoor-based, it will take into account the skylight factor at pixel position
+    // skylight factor is a mixture of skylight at pixel position and skylight the player character receives
+    // this helps with indoors/outdoors transitions, so there is no abrupt change in fog density
+    float indoorFogBonus = distanceToPixel * FOG_INDOOR_BONUS_PEAKDIST;
+    float skylightFactor = min(1.0, (skylightAtPos * 0.5 + indoorFogBonus) + g_SkylightAtPlayer * 0.75);
+    fog = g_MaxFogAmount * max(0.0, min(1.0, exponentialFogAmount));
+    fog = (1.0 - g_FogSkylightInfluence) * fog + g_FogSkylightInfluence * skylightFactor * fog;
+
+    return fog;
+#else
+    return 0.0;
+#endif
+}
+
+vec3 ComputeVolumetricFog(in vec3 rgb, in vec3 cameraToWorldPos, in float skylightAtPos) {
+#if FOG
+    vec3 newColor = mix(rgb, getFogColor(cameraToWorldPos), ComputeVolumetricFog(cameraToWorldPos, skylightAtPos));
+    return newColor;
+#else
+    return vec3(rgb);
+#endif
+}
+
+
+#define SNOW 1
+#if SNOW
+    uniform int m_useSnow;
+    uniform vec3 m_snowColor;
+    uniform sampler2D m_snowSampler;
+#endif
+
+float getSnowAmount(vec2 snowUv, vec3 color, float height, float snowMask, float heightBias) {
+    float snowAmount = 0.0;
+    #if SNOW
+        float _snowMask = min(1.0, heightBias + step(0.5, snowMask) * (snowMask - 0.25) * 1.35);
+        float _f = max(0.0, min(1.0, _snowMask + (_snowMask - height * 1.35)));
+        snowAmount = pow(_f, 3.0);
+        snowAmount -= heightBias * 0.75;
+        snowAmount = max(0.0, snowAmount);
+    #endif
+    return snowAmount;
+}
+
+float getSnowAmount(vec2 snowUv, vec3 color, float height, float snowMask) {
+    return getSnowAmount(snowUv, color, height, snowMask, 0.0);
+}
+
+vec3 applySnow(vec3 color, vec2 snowUv, float snowAmount) {
+    vec3 newColor = color.rgb;
+    #if SNOW
+        if (m_useSnow > 0) {
+            vec3 snowColor = texture(m_snowSampler, snowUv * 2.0).rgb * m_snowColor;
+            newColor = mix(color.rgb, snowColor, snowAmount);
+        }
+    #endif
+    return newColor;
+}
+
+vec3 applySnow(vec2 snowUv, vec3 color, float height, float snowMask) {
+    return applySnow(color, snowUv, getSnowAmount(snowUv, color, height, snowMask, 0.0));
+}
+
+vec3 applySnow(vec2 snowUv, vec3 color, float height, float snowMask, float heightBias) {
+    return applySnow(color, snowUv, getSnowAmount(snowUv, color, height, snowMask, heightBias));
+}
+
+
+
+#if SNOW
+    centroid in float snowMaskIn;
+    in float heightBias;
+    in float ao;
+#endif
+
+void main() {
+    vec4 color = vec4(0.0);
+
+    #if ANIMATED
+        if (animated > 0.0) {
+            color = mix(
+                texture(animationAtlasTextureId, uv),
+                texture(animationAtlasTextureId, nextFrameUv),
+                partialFrame
+            );
+        } else {
+            color = texture(atlasTextureId, uv);
+        }
+    #else
+        color = texture(atlasTextureId, uv);
+    #endif
+
+
+
+    #if SNOW
+        if(m_useSnow > 0) {
+            vec2 snowUv = mod(uv, vec2(0.046875)) * 16.0;
+            color.rgb = applySnow(snowUv, color.rgb, length(color.rgb), snowMaskIn, heightBias) * ao * min(1.0, 0.65 + color.a);
+        } else {
+            color.rgb *= bakedAo;
+        }
+    #else
+        color.rgb *= bakedAo;
+    #endif
+   // if (gl_FragCoord.x < gl_FragCoord.y * (1920.0 / 1020.0))
+    color.rgb = texture3D(lut, color.rgb).rgb;
+
+    vec3 light = texture(lightMapTextureId, lightmapUv).xyz;
+    color.xyz *= light;
+
+    #if THROW_MARK
+        if (drawCircle > 0) {
+            vec3 circlePos = worldPos - throwCirclePos;
+            float rIn = throwCircleSize.x;
+            float rOut = throwCircleSize.y;
+            float sph = sqrt(circlePos.x * circlePos.x +
+                            circlePos.y * circlePos.y +
+                            circlePos.z * circlePos.z);
+            float circle = max(0.0, smoothstep(rIn, rOut, sph) - smoothstep(rOut - CIRCLE_BORDER, rOut, sph));
+            vec2 pattern = step(vec2(2.0), mod(vec2(ivec2(gl_FragCoord.xy)), vec2(4.0)));
+            circle *= pattern.x * pattern.y;
+            color = mix(color, vec4(CIRCLE_COLOR, circle), vec4(circle * color.a));
+        }
+    #endif
+
+    #if WARN_MARK
+    if(drawWarn > 0) {
+        vec3 circlePos = worldPos - warnPos.xyz;
+        float rIn = 0.1;
+        float rOut = warnPos.w;
+        float sph = length(circlePos);
+        float circle = max(0.0, smoothstep(rIn, rOut, sph) - smoothstep(rOut - 0.1, rOut, sph)) * 0.25;
+        vec2 pattern = step(vec2(2.0), mod(vec2(ivec2(gl_FragCoord.xy)), vec2(4.0)));
+        color = mix(color, vec4(WARN_COLOR, circle), vec4(circle * color.a));
+    }
+    #endif
+
+
+    #if FOG
+        color.rgb = ComputeVolumetricFog(color.rgb, pos, lightmapUv.y);
+    #endif
+
+    finalColor = color;
+
+    #if DEBUG_NORMALS
+        debugNormalColor = vec4(normal.xyz * 0.5 + 0.5, 1.0);
+    #endif
+}
+ï

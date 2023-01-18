@@ -1,0 +1,25 @@
+#version 110
+uniform float time;
+uniform float scale;
+
+#define HASHSCALE1 .1031
+
+float hash12(vec2 p)
+{
+	vec3 p3  = fract(vec3(p.xyx) * HASHSCALE1);
+    p3 += dot(p3, p3.yzx + 19.19);
+    return fract((p3.x + p3.y) * p3.z);
+}
+
+void main(){
+	vec2 position = gl_FragCoord.xy / scale;
+    float c = 0.1;
+    for(int i = 0; i < 4; i++){
+        float v = float(i + 1) * .152;
+        vec2 p = position * v + time * 1500. + 50.;
+        c += hash12(p);
+    }
+
+    vec3 col = vec3(c / 4.);
+    gl_FragColor = vec4(col * gl_Color.rgb, gl_Color.a);
+}

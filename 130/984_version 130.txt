@@ -1,0 +1,108 @@
+#version 130
+#define GL40 0
+#line 1
+
+const float TO_DEG = (180.0 / 3.1415926535);
+const float POS_QUANTIZATION = (1.0 / 28.0);
+
+uniform vec3 anchorPos;
+uniform vec3 playerPos;
+uniform vec4 frustum[6];
+
+#if GL40
+    uniform vec4 lodDistance;
+#else
+    uniform int rotateToCamera;
+    uniform vec2 lodDistance;
+#endif
+
+in vec3 positionIn;
+in vec2 brightnessIn;
+in vec2 rotationIn;
+in vec4 metaIn;
+
+out vec3 pos;
+out float angle;
+out float distance;
+
+out vec2 brightness;
+out vec2 rotXz;
+out vec3 biome;
+
+flat out int visible;
+
+float rand(float n){return fract(sin(n) * 43758.5453123);}
+
+float noise(float p){
+	float fl = floor(p);
+  float fc = fract(p);
+	return mix(rand(fl), rand(fl + 1.0), fc);
+}
+
+
+float rand(vec2 n) {
+	return fract(sin(dot(n, vec2(12.9898, 4.1414))) * 43758.5453);
+}
+
+float noise(vec2 p){
+	vec2 ip = floor(p);
+	vec2 u = fract(p);
+	u = u*u*(3.0-2.0*u);
+
+	float res = mix(
+		mix(rand(ip),rand(ip+vec2(1.0,0.0)),u.x),
+		mix(rand(ip+vec2(0.0,1.0)),rand(ip+vec2(1.0,1.0)),u.x),u.y);
+	return res*res;
+}
+
+
+int isInFrustum(vec4 localPos, float objectSize) {
+    int isVisible = 1;
+    for (int i = 0; i < 6; ++i) {
+		float d = dot(frustum[i], localPos);
+		if (d <= -objectSize) {
+			isVisible = 0;
+			break;
+		}
+	}
+	return isVisible;
+}
+
+int getGrassDensity(vec4 worldPos) {
+    return int(step(0.005, 0.00 * noise(worldPos.zx * 0.45)));
+}
+
+float getPatchRotation(float d) {
+    float angle = 0.0;
+    vec2 dt = normalize(positionIn.xz + playerPos.xz);
+    #if GL40
+        if (d >= lodDistance.z) { // ROTATE_TO_CAM (last lod)
+            angle = -(atan(dt.y, dt.x) * TO_DEG + 90.0); // MAD
+        } else {
+            angle = 90.0;//angle = positionIn.w * toDeg;
+        }
+    #else
+        if (rotateToCamera > 0) { // ROTATE_TO_CAM (last lod)
+            angle = -(atan(dt.y, dt.x) * TO_DEG - 90.0); // MAD
+            angle = 90.0 + noise(positionIn.xz * 20.0) * 11810.0;//angle = positionIn.w * toDeg;
+        } else {
+            angle = 90.0 + noise(positionIn.xz * 20.0) * 11810.0;//angle = positionIn.w * toDeg;
+        }
+    #endif
+    return angle;
+}
+
+void main() {
+    vec3 instancePos = -positionIn.xyz;
+    vec4 worldPos = vec4(instancePos, 1.0);
+    vec4 viewPos = worldPos - vec4(playerPos, 0.0);
+	float d = length(viewPos.xz);
+    visible = isInFrustum(worldPos, 1.0) - getGrassDensity(worldPos);
+	pos = instancePos;
+	distance = d;
+	angle = getPatchRotation(d);
+	rotXz = rotationIn.xy;
+	brightness = brightnessIn.xy;
+	biome = metaIn.xyz;
+	gl_Position = gl_ProjectionMatrix * gl_ModelViewMatrix * viewPos;
+}

@@ -1,0 +1,25 @@
+#version 110
+
+uniform sampler2D texture;
+uniform vec2 tDelta;
+uniform vec3 outlineColor;
+
+varying vec2 uv;
+
+float getAlpha(in vec2 uv, float dx, float dy){
+    return texture2D(texture, uv + vec2(dx, dy)).a;
+}
+
+void main(){
+
+    vec4 original = texture2D(texture, uv);
+
+    float dAlpha = (
+        abs(getAlpha(uv, -tDelta.x, 0.) - getAlpha(uv, tDelta.x, 0.)) +
+        abs(getAlpha(uv, 0., tDelta.y) - getAlpha(uv, 0., -tDelta.y)) +
+        abs(getAlpha(uv, -tDelta.x, -tDelta.y) - getAlpha(uv, tDelta.x, tDelta.y)) +
+        abs(getAlpha(uv, -tDelta.x, tDelta.y) - getAlpha(uv, tDelta.x, -tDelta.y))
+    ) / 4.;
+
+    gl_FragColor = mix(original, vec4(outlineColor, 1.), dAlpha);
+}

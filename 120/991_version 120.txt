@@ -1,0 +1,15 @@
+#version 120
+
+uniform sampler2D texture;
+uniform float grayAmount;
+
+varying vec2 uv;
+
+void main(){
+    vec4 color = texture2D(texture, uv);
+
+    float gray = dot(color.rgb, vec3(0.299, 0.587, 0.114));
+    vec4 result = vec4(mix(color.rgb, vec3(gray), grayAmount), color.a) * gl_Color;
+
+    gl_FragColor = result;
+}

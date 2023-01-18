@@ -1,0 +1,25 @@
+#version 110
+
+uniform sampler2D fontTexture;
+uniform float width;
+uniform float edgeWidth;
+
+uniform float borderWidth;
+uniform float borderEdge;
+uniform int texChannel;
+
+varying vec2 uv;
+varying float channel;
+const vec3 outlineColor = vec3(0.0, 0.0, 0.0);
+
+void main(){
+    vec4 color = gl_Color;
+	float distance = 1.0 - texture2D(fontTexture, uv)[int(channel + 0.5)];
+	float alpha = 1. - smoothstep(width, width + edgeWidth, distance);
+	float outlineAlpha = 1.0 - smoothstep(borderWidth, borderWidth + borderEdge, distance);
+
+	float overallAlpha = alpha + (1.0 - alpha) * outlineAlpha;
+	vec3 overallColor = mix(outlineColor, color.rgb, alpha / overallAlpha);
+
+	gl_FragColor = vec4(overallColor.rgb, overallAlpha * color.a);
+}

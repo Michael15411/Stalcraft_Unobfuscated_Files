@@ -1,0 +1,26 @@
+#version 110
+
+varying vec2 textureCoord;
+
+uniform sampler2D screenTexture;
+uniform sampler2D distortion;
+
+// Gradually decrease strength to zero at screen borders to avoid noticeable texture clamping
+float calcDistortionStrength(vec2 uv) {
+    vec2 offset = abs(0.5 - uv) - 0.3;
+    float distance = length(max(offset, 0.0)) + max(max(offset.x, offset.y), 0.0);
+    return 1.0 - smoothstep(0.0, 0.4, distance);
+}
+
+void main() {
+    vec4 distortionVec = texture2D(distortion, textureCoord);
+    float strength = 0.1 * distortionVec.a * calcDistortionStrength(textureCoord);
+
+    float xTextureCoord = textureCoord.x + ((distortionVec.r + 0.5/255.0) - 0.5) * strength;
+    float yTextureCoord = textureCoord.y + ((distortionVec.g + 0.5/255.0) - 0.5) * strength;
+    vec2 uv = vec2(xTextureCoord, yTextureCoord);
+
+	vec3 color = texture2D(screenTexture, uv).xyz;
+	
+    gl_FragColor = vec4(color, 1.0);
+}

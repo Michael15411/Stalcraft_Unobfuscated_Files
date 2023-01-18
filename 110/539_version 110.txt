@@ -1,0 +1,18 @@
+#version 110
+
+uniform vec3 m_zoneCenter;
+uniform vec2 m_zoneSize;
+
+varying vec2 uv;
+varying vec3 vert;
+varying vec3 pos;
+varying vec3 normal;
+
+void main(){
+	uv = gl_MultiTexCoord0.st;
+	vert = gl_Vertex.xyz;
+	pos = (gl_ModelViewMatrix * gl_Vertex).xyz;
+	vec3 p = (gl_Vertex.xyz - m_zoneCenter) / vec3(m_zoneSize.x, m_zoneSize.y, m_zoneSize.x);
+	normal = normalize(gl_NormalMatrix * (p * vec3(1.0, 0.0, 1.0)));
+	gl_Position = gl_ProjectionMatrix * gl_ModelViewMatrix * gl_Vertex;
+}€ÅË

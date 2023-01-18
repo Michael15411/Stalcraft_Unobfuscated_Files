@@ -1,0 +1,178 @@
+#version 130
+#define MAX_BLOCK_HEIGHT 3.0
+#define DEBUG_NORMALS 0
+#define ANIMATED 1
+#line 1
+#define THROW_MARK 1
+#define WARN_MARK 1
+
+const float quantizeFactorPos = 1024.0;
+const float quantizeFactorUv = 16384.0;
+
+in vec4 posLightIn;
+in vec4 colorIn;
+in vec2 uvIn;
+in vec4 normalIn;
+
+centroid out vec2 uv;
+centroid out vec2 lightmapUv;
+out vec3 bakedAo;
+out vec3 worldPos;
+out vec3 pos;
+
+#if THROW_MARK
+    uniform vec3 throwCirclePos;
+    flat out int drawCircle;
+#endif
+#if WARN_MARK
+    uniform vec4 warnPos;
+    flat out int drawWarn;
+#endif
+
+#if ANIMATED
+    centroid out vec2 nextFrameUv;
+    out float animated;
+
+    uniform float frameIndex;
+    uniform float nextFrameIndex;
+    uniform float frameWidth;
+#endif
+
+uniform int pass;
+uniform vec3 playerPos;
+uniform vec3 chunkPos;
+
+out vec3 normal;
+
+out vec3 tpos;
+
+#define SNOW 1
+#if SNOW
+    uniform int m_useSnow;
+#endif
+
+float getSnowMask(float edge, float underwater, float plants, float bias, vec2 lightmap, vec3 n, float slopeSnow) {
+    float _snowMask = 0.0;
+    #if SNOW
+        if (m_useSnow > 0) {
+            float lightThresold = min(1.0, smoothstep(0.8, .95, min(0.95, lightmap.y + bias)));
+            _snowMask = lightThresold * (smoothstep(0.0, 0.4, n.y) + edge) + underwater;
+            _snowMask += step(0.9, lightmap.y) * step(0.01, bias) * 0.825;
+            _snowMask += plants * 0.75;
+            _snowMask = max(0.0, min(1.0, _snowMask));
+            _snowMask -= step(0.9, -n.y);
+            _snowMask -= underwater * 0.5 * edge;
+            _snowMask -= plants * 0.12;
+            _snowMask -= slopeSnow;
+            _snowMask = max(0.0, _snowMask);
+        }
+    #endif
+    return _snowMask;
+}
+
+
+
+#if SNOW
+    centroid out float snowMaskIn;
+    out float heightBias;
+    out float ao;
+#endif
+
+float rand(float n){return fract(sin(n) * 43758.5453123);}
+
+float noise(float p){
+	float fl = floor(p);
+  float fc = fract(p);
+	return mix(rand(fl), rand(fl + 1.0), fc);
+}
+
+float rand(vec2 n) {
+	return fract(sin(dot(n, vec2(12.9898, 4.1414))) * 43758.5453);
+}
+
+float noise(vec2 p){
+	vec2 ip = floor(p);
+	vec2 u = fract(p);
+	u = u*u*(3.0-2.0*u);
+
+	float res = mix(
+		mix(rand(ip),rand(ip+vec2(1.0,0.0)),u.x),
+		mix(rand(ip+vec2(0.0,1.0)),rand(ip+vec2(1.0,1.0)),u.x),u.y);
+	return res*res;
+}
+
+void main() {
+    vec3 localPos = posLightIn.xyz / vec3(quantizeFactorPos);
+    vec2 _lightmapUv = (vec2(posLightIn.w, colorIn.w * 255.0) + vec2(8.0)) / 256.0;
+    vec3 n = normalIn.xyz / vec3(127.0);
+
+    pos = localPos + chunkPos;
+    worldPos = pos + playerPos;
+
+    vec2 texUv = uvIn / vec2(quantizeFactorUv);
+    uv = texUv;
+
+    vec3 _normal = normalize(n);
+    vec3 _bakedAo = (colorIn.xyz);
+
+	lightmapUv = _lightmapUv;
+	bakedAo = _bakedAo;
+
+    #if SNOW
+        float edge = float(int(normalIn.w) & 1);
+        float underwater = float((int(normalIn.w) >> 1) & 1);
+        float plants = float((int(normalIn.w) >> 2) & 1);
+        float bias = 0.0 + 0.17 * float((int(normalIn.w) >> 3) & 1);
+        float cancelSnow = float((int(normalIn.w) >> 4) & 1);
+        float applySlopeSnow = float((int(normalIn.w) >> 5) & 1);
+        heightBias = float((int(normalIn.w) >> 6) & 1);
+        float carpenter = float((int(normalIn.w) >> 7) & 1);
+        float cancelAnimation = underwater;
+    #endif
+
+    #if ANIMATED
+        nextFrameUv = uv;
+        animated = 0.0;
+        if (uv.y < .0) { // DIRTY HACK: this is a uv-baked 'attribute' telling us the texture is animated
+            #if SNOW
+                if (cancelAnimation == 0.0) nextFrameUv.x = frameWidth * nextFrameIndex + uv.x;
+                if (cancelAnimation == 0.0) uv.x = frameWidth * frameIndex + uv.x; // animate
+            #else
+                nextFrameUv.x = frameWidth * nextFrameIndex + uv.x;
+                uv.x = frameWidth * frameIndex + uv.x; // animate
+            #endif
+            uv.y += 1.0; // restore correct UV
+            nextFrameUv.y = uv.y;
+            animated = 1.0;
+        }
+
+        #if SNOW
+            if (animated > 0 && underwater < 1) {
+                plants = 1.0;
+            }
+        #endif
+    #endif
+
+    #if SNOW
+        snowMaskIn = getSnowMask(edge, underwater, plants, bias - cancelSnow * 0.077, lightmapUv, n, applySlopeSnow);
+        carpenter = max(0.0, min(1.0, carpenter * step(0.5, _normal.y)));
+        ao = (_normal.y * 0.2 + 0.8) * (carpenter) + (1.0 - carpenter) * length((_bakedAo.x + _bakedAo.y + _bakedAo.z) * 0.3333);
+    #endif
+
+    #if THROW_MARK
+        drawCircle = 0;
+        if (pass == 0 && length(throwCirclePos.xz - worldPos.xz) < 3.0) {
+            drawCircle = 1;
+        }
+    #endif
+    #if WARN_MARK
+        drawWarn = 0;
+        if(pass == 0 && distance(warnPos.xz, worldPos.xz) < 4.0) {
+            drawWarn = 1;
+        }
+    #endif
+
+    tpos = (gl_ModelViewMatrix * vec4(pos, 1.0)).xyz;
+   	gl_Position = gl_ProjectionMatrix * gl_ModelViewMatrix * vec4(pos, 1.0);
+    normal = _normal;
+}

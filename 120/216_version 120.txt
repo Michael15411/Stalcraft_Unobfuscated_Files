@@ -1,0 +1,23 @@
+#version 120
+
+uniform float rampValue;
+
+uniform sampler2D objectTexture;
+uniform sampler2D rampTexture;
+
+uniform vec4 color;
+uniform bool burn;
+uniform float burnF;
+
+varying vec2 textureCoord;
+varying vec4 vertexColor;
+
+void main() {
+    vec4 pixel = texture2D(objectTexture, textureCoord);
+    pixel *= color;
+    if (burn) {
+        pixel.rgb *= pixel.a;
+        pixel.a = burnF;
+    }
+	gl_FragColor = pixel;
+}

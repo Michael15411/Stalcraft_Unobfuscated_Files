@@ -1,0 +1,62 @@
+#version 120
+
+uniform bool shadowPass;
+uniform vec2 pixelSize;
+uniform sampler2D framebuffer;
+
+#define resolution (1.0 / pixelSize)
+
+varying vec2 uv;
+
+vec4 blur(vec2 blurSize) {
+    vec4 result = vec4(0.0);
+    float blurSmoothness = 4.0;
+    for (float x = -blurSize.x; x <= blurSize.x; x++) {
+        for (float y = -blurSize.y; y <= blurSize.y; y++) {
+            result += texture2D(framebuffer, uv + pixelSize * vec2(x, y) * blurSmoothness);
+        }
+    }
+    result /= blurSize.x * blurSize.y * 2.0 * 2.0;
+    return result;
+}
+
+void main() {
+    if (shadowPass) {
+    } else {
+        // downsampling goes here
+        vec4 color = vec4(0.0);
+        float totalColors = 0.0;
+
+        vec2 offsets[] = vec2[4](
+             vec2(0.0, 0.0),
+             vec2(1.0, 0.0),
+             vec2(0.0, 1.0),
+             vec2(1.0, 1.0)
+        );
+        for (int i = 0; i < 4; i++) {
+            vec4 texColor = texture2D(framebuffer, uv + pixelSize * offsets[i]);
+            if (texColor.a > 0.01) {
+                color += texColor;
+                totalColors++;
+            }
+        }
+        if (totalColors > 0.01) {
+            color.xyz /= totalColors;
+        }
+        color.a /= 4.0;
+
+        float shadow = blur(vec2(5.0)).a * 0.35 + blur(vec2(15.0)).a * 0.15;
+        shadow = max(0.0, min(1.0, shadow));
+        color = max(vec4(vec3(0.0), shadow), color);
+
+
+        // englighten
+        //float lum = (length(color.rgb) - 0.3) / 0.3;
+        //color.rgb = mix(color.rgb, color.rgb / (vec3(1.0) - color.rgb), max(0.0, 1.0 - lum));
+
+        // some nice effect :v
+        // color.rgb = mix(color.rgb, vec3(0.9, 0.1, 0.05) - color.rgb, min(uv.y* uv.x * uv.x * 1.0, 0.3));
+
+        gl_FragColor = color;
+	}
+}

@@ -1,0 +1,51 @@
+#version 110
+
+uniform float thickness;
+uniform vec4 line;
+uniform float time;
+uniform vec2 resolution;
+
+float getPoint(vec4 line, vec2 position){
+	float crotch = mod(time / 2., 1.);
+	vec2 crPoint = line.xy + crotch * (line.zw - line.xy);
+	float cd = length(crPoint - position);
+	float f = cd / (thickness * 4.);
+	float cf = (1. - step(thickness * 4., cd)) * smoothstep(0.6, 0.85, 1. - f);
+	return cf;
+}
+
+float getLine(vec4 line, vec2 position){
+	float a = length(line.xy - position);
+	float b = length(line.zw - position);
+	float c = length(line.zw - line.xy);
+	float p = .5 * (a + b + c);
+	float h = (2. / c) * sqrt(p * (p - a) * (p - b) * (p - c));
+	float l = 1. - step(thickness, h);
+	float f = 1. - h / thickness;
+
+	float lineColor = (abs(sin(time)) * .5 + .5) * smoothstep(0., 1., f) * l;
+
+	vec2 center = (line.xy + line.zw) / 2.;
+	float centerF = length(position - center);
+	float centerLimit = c / 2.;
+	float fadeout = centerLimit * .9;
+	float limiter = 1. - step(centerLimit, centerF);
+	float fade = step(fadeout, centerF);
+	limiter *= 1. - fade * smoothstep(0.0, 1., (centerF - fadeout) / (centerLimit - fadeout));
+
+	return lineColor * limiter;
+}
+
+void main() {
+	vec2 position = (gl_FragCoord.xy / resolution.xy);
+	float r = resolution.x / resolution.y;
+	position.x *= resolution.x / resolution.y;
+	vec4 l = line;
+	l.xz *= r;
+
+	vec4 color = gl_Color;
+	vec4 result = getLine(l, position) * color;
+	result = max(result, getPoint(l, position) * color);
+
+	gl_FragColor = result;
+}

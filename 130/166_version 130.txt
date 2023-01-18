@@ -1,0 +1,38 @@
+#version 130
+
+uniform sampler2D texture;
+
+uniform float pxRange;
+uniform float sdfBoosting;
+uniform float textureWidth;
+
+varying vec2 uv;
+varying vec4 color;
+
+float median(float a, float b, float c) {
+    return max(min(a, b), min(max(a, b), c));
+}
+
+float map (float min, float max, float v) {
+    return (v - min) / (max - min);
+}
+
+void main() {
+    vec4 msdfData = texture2D(texture, uv);
+    vec3 tsample = msdfData.rgb;
+
+    float sigDist = median(tsample.r, tsample.g, tsample.b);
+
+    vec2 w = fwidth(uv);
+    float smoothing = clamp(w.x * textureWidth / pxRange, 0.0, 0.5);
+
+    float mapMin = 0.05;
+    float mapMax = clamp(1.0 - sdfBoosting, mapMin, 1.0);
+
+    float sigDistInner = map(mapMin, mapMax, sigDist);
+
+    float center = 0.5;
+    float inside = smoothstep(center - smoothing, center + smoothing, sigDistInner) * 1.2;
+
+    gl_FragColor = vec4(color.rgb, inside * color.a);
+}

@@ -1,0 +1,11 @@
+#version 110
+
+uniform sampler2D framebuffer;
+uniform float alpha;
+
+varying vec2 uv;
+
+void main() {
+    vec4 color = texture2D(framebuffer, uv);
+	gl_FragColor = vec4(color.rgb, color.a < 0.01 ? 0.0 : alpha);
+}

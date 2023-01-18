@@ -1,0 +1,3 @@
+#version 110
+
+#define W 0.01

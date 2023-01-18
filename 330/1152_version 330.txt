@@ -1,0 +1,265 @@
+#version 330
+
+#define lowp
+#define mediump
+#define highp
+#define IN in
+#define CENTROID centroid
+#define TEX2D texture
+layout (location = 0) out vec4 FRAGCOLOR;
+
+#define LAYOUT(ind) 
+
+#define MOD mod
+#define FRAC fract
+#define LERP mix
+
+float atan2(in float y, in float x) {
+    return x == 0.0 ? sign(y)* 3.141592 / 2.0 : atan(y, x);
+}
+
+
+
+LAYOUT(0) CENTROID IN lowp vec4 v_VColor;
+LAYOUT(1) CENTROID IN mediump vec2 v_UV1;
+LAYOUT(2) CENTROID IN mediump vec2 v_UV2;
+LAYOUT(3) IN mediump vec4 v_WorldN_PX;
+LAYOUT(4) IN mediump vec4 v_WorldB_PY;
+LAYOUT(5) IN mediump vec4 v_WorldT_PZ;
+LAYOUT(6) IN mediump vec4 v_PosP;
+//$C_PIN1$
+//$C_PIN2$
+
+#define _INSTANCE_COUNT_ 10
+uniform sampler2D efk_background;
+uniform sampler2D efk_depth;
+
+
+uniform vec4 mUVInversedBack;
+uniform vec4 predefined_uniform;
+uniform vec4 cameraPosition;
+uniform vec4 reconstructionParam1;
+uniform vec4 reconstructionParam2;
+
+uniform mat4 cameraMat;
+
+
+#define FLT_EPSILON 1.192092896e-07
+
+vec3 PositivePow(vec3 base, vec3 power)
+{
+	return pow(max(abs(base), vec3(FLT_EPSILON, FLT_EPSILON, FLT_EPSILON)), power);
+}
+
+vec3 LinearToSRGB(vec3 c)
+{
+	return max(1.055 * PositivePow(c, vec3(0.416666667,0.416666667,0.416666667)) - 0.055, 0.0);
+}
+
+vec4 LinearToSRGB(vec4 c)
+{
+    vec3 param = c.xyz;
+    return vec4(LinearToSRGB(param), c.w);
+}
+
+vec4 ConvertFromSRGBTexture(vec4 c)
+{
+    if (predefined_uniform.z == 0.0)
+    {
+        return c;
+    }
+    vec4 param = c;
+    return LinearToSRGB(param);
+}
+
+vec3 SRGBToLinear(vec3 c)
+{
+	return min(c, c * (c * (c * 0.305306011 + 0.682171111) + 0.012522878));
+}
+
+vec4 SRGBToLinear(vec4 c)
+{
+    vec3 param = c.xyz;
+    return vec4(SRGBToLinear(param), c.w);
+}
+
+vec4 ConvertToScreen(vec4 c)
+{
+    if (predefined_uniform.z == 0.0)
+    {
+        return c;
+    }
+    vec4 param = c;
+    return SRGBToLinear(param);
+}
+
+
+
+
+vec2 GetUV(vec2 uv)
+{
+	uv.y = mUVInversedBack.x + mUVInversedBack.y * uv.y;
+	return uv;
+}
+
+vec2 GetUVBack(vec2 uv)
+{
+	uv.y = mUVInversedBack.z + mUVInversedBack.w * uv.y;
+	return uv;
+}
+
+float CalcDepthFade(vec2 screenUV, float meshZ, float softParticleParam)
+{
+	float backgroundZ = TEX2D(efk_depth, GetUVBack(screenUV)).x;
+
+	float distance = softParticleParam * predefined_uniform.y;
+	vec2 rescale = reconstructionParam1.xy;
+	vec4 params = reconstructionParam2;
+
+	vec2 zs = vec2(backgroundZ * rescale.x + rescale.y, meshZ);
+
+	vec2 depth = (zs * params.w - params.y) / (params.x - zs * params.z);
+	float dir = sign(depth.x);
+	depth *= dir;
+	return min(max((depth.x - depth.y) / distance, 0.0), 1.0);
+}
+
+#ifdef _MATERIAL_LIT_
+
+const float lightScale = 3.14;
+
+float saturate(float v)
+{
+	return max(min(v, 1.0), 0.0);
+}
+
+float calcD_GGX(float roughness, float dotNH)
+{
+	float alpha = roughness*roughness;
+	float alphaSqr = alpha*alpha;
+	float pi = 3.14159;
+	float denom = dotNH * dotNH *(alphaSqr-1.0) + 1.0;
+	return (alpha / denom) * (alpha / denom) / pi;
+}
+
+float calcF(float F0, float dotLH)
+{
+	float dotLH5 = pow(1.0-dotLH,5.0);
+	return F0 + (1.0-F0)*(dotLH5);
+}
+
+float calcG_Schlick(float roughness, float dotNV, float dotNL)
+{
+	// UE4
+	float k = (roughness + 1.0) * (roughness + 1.0) / 8.0;
+	// float k = roughness * roughness / 2.0;
+
+	float gV = dotNV*(1.0 - k) + k;
+	float gL = dotNL*(1.0 - k) + k;
+
+	return 1.0 / (gV * gL);
+}
+
+float calcLightingGGX(vec3 N, vec3 V, vec3 L, float roughness, float F0)
+{
+	vec3 H = normalize(V+L);
+
+	float dotNL = saturate( dot(N,L) );
+	float dotLH = saturate( dot(L,H) );
+	float dotNH = saturate( dot(N,H) ) - 0.001;
+	float dotNV = saturate( dot(N,V) ) + 0.001;
+
+	float D = calcD_GGX(roughness, dotNH);
+	float F = calcF(F0, dotLH);
+	float G = calcG_Schlick(roughness, dotNV, dotNL);
+
+	return dotNL * D * F * G / 4.0;
+}
+
+vec3 calcDirectionalLightDiffuseColor(vec3 diffuseColor, vec3 normal, vec3 lightDir, float ao)
+{
+	vec3 color = vec3(0.0,0.0,0.0);
+
+	float NoL = dot(normal,lightDir);
+	color.xyz = lightColor.xyz * lightScale * max(NoL,0.0) * ao / 3.14;
+	color.xyz = color.xyz * diffuseColor.xyz;
+	return color;
+}
+
+#endif
+
+void main()
+{
+	vec2 uv1 = v_UV1;
+	vec2 uv2 = v_UV2;
+	vec3 worldPos = vec3(v_WorldN_PX.w, v_WorldB_PY.w, v_WorldT_PZ.w);
+	vec3 worldNormal = v_WorldN_PX.xyz;
+	vec3 worldTangent = v_WorldT_PZ.xyz;
+	vec3 worldBinormal = v_WorldB_PY.xyz;
+	vec3 pixelNormalDir = worldNormal;
+	vec4 vcolor = v_VColor;
+	vec3 objectScale = vec3(1.0, 1.0, 1.0);
+
+	vec2 screenUV = v_PosP.xy / v_PosP.w;
+	float meshZ =   v_PosP.z / v_PosP.w;
+	screenUV.xy = vec2(screenUV.x + 1.0, screenUV.y + 1.0) * 0.5;
+
+#ifdef _SCREEN_FLIPPED_
+	screenUV.y = 1.0 - screenUV.y;
+#endif
+
+
+float temp_0 = float(1.05);
+float temp_1 = float(0.0);
+vec3 temp_2 = (cameraPosition.xyz-worldPos);
+vec3 temp_3 = normalize(temp_2);
+float temp_4 = dot(temp_3,pixelNormalDir);
+float temp_5 = float(0.0);
+float temp_6 = max(temp_5,temp_4);
+float temp_7 = float(1.0);
+float temp_8 = (temp_7-temp_6);
+float temp_9 = abs(temp_8);
+float temp_11=vec4(temp_0,temp_0,temp_0,temp_0).x;
+float temp_10 = pow(temp_9,temp_11);
+float temp_12 = float(1.0);
+float temp_13 = (temp_12-temp_1);
+float temp_14 = (temp_10*temp_13);
+float val0 = (temp_14+temp_1);
+vec3 val1=pixelNormalDir;
+vec3 val2=worldPos;
+vec3 val3=cameraPosition.xyz;
+vec3 val4=(val3-val2);
+vec3 val5=normalize(val4);
+float val6= dot(val5,val1);
+float val7=float(1.0)-val0;
+float val8=(val7/float(0.45));
+float val9=(val8*val8);
+float val10=(val9*val0);
+vec3 normalDir = vec3(0.5,0.5,1.0);
+vec3 worldPositionOffset = vec3(0.0,0.0,0.0);
+vec3 baseColor = vec3(0.0,0.0,0.0);
+vec3 emissive = vec3(0.0,0.0,0.0);
+float metallic = float(0.5);
+float roughness = float(0.5);
+float ambientOcclusion = float(1.0);
+float opacity = val10;
+float opacityMask = val6;
+float refraction = val0;
+
+
+
+	float airRefraction = 1.0;
+
+	vec3 dir = mat3(cameraMat) * pixelNormalDir;
+	vec2 distortUV = dir.xy * (refraction - airRefraction);
+
+	distortUV += screenUV;
+	distortUV = GetUVBack(distortUV);	
+
+	vec4 bg = TEX2D(efk_background, distortUV);
+	FRAGCOLOR = bg;
+
+	if(opacityMask <= 0.0) discard;
+	if(opacity <= 0.0) discard;
+}
+

@@ -1,0 +1,21 @@
+#version 150
+in vec2 textCoord;
+out vec4 FragColor;
+uniform sampler2DRect tex0;
+
+// YUV coefficients 
+const vec3 Ycoeff = vec3(%f, %f, %f);
+
+void main()
+{
+    vec3 yuv, rgb;
+
+    // Get the color value 
+    rgb = texture(tex0, textCoord).rgb;
+
+    // Calculate the YUV values 
+    yuv.x = dot(rgb, Ycoeff) + %f;
+
+    // Write the YUV values 
+    FragColor = vec4(yuv.x, 1.0, 1.0, 1.0);
+}

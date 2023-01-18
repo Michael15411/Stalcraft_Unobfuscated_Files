@@ -1,0 +1,26 @@
+#version 110
+
+varying vec2 uv;
+
+uniform float circleWidth;
+uniform float lineWidth;
+
+float line(vec2 dir, vec2 p0, vec2 p){
+    vec2 perp = vec2(dir.y, -dir.x);
+    return abs(dot(normalize(perp), p0 - p));
+}
+
+void main(){
+    float d = length(uv - vec2(0.5));
+
+    float b = circleWidth / 2.0;
+    float r = 0.5 - b;
+    float c = smoothstep(r - b, r, d) - smoothstep(r, r + b, d);
+
+    float d0 = line(vec2(1.0), vec2(0.0), uv);
+    float l0 = smoothstep(- b - lineWidth, - lineWidth, d0) - smoothstep(lineWidth, lineWidth + b, d0);
+    float d1 = line(vec2(1.0, -1.0), vec2(1.0, 0.0), uv);
+    float l1 = smoothstep(- b - lineWidth, - lineWidth, d1) - smoothstep(lineWidth, lineWidth + b, d1);
+
+    gl_FragColor = vec4(max(c - max(l0, l1), 0.0)) * gl_Color;
+}

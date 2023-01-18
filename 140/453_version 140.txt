@@ -1,0 +1,577 @@
+#version 140
+#define GLSL130 1
+#define DIFFUSE_MAPPING 1
+#define NORMAL_MAPPING 0
+#define SPECULAR_MAPPING 0
+#define GLOSS_MAPPING 0
+#define EMISSION_MAPPING 1
+#define SPECULAR_LIGHTING 0
+#define ANIMATION 0
+#define ALPHA_BLENDING 0
+#define COLOURFUL_SPECULAR 0
+#define REFLECTION 0
+#define FORCE_PER_PIXEL_LIGHTING 0
+#define ALPHA_TRANSPARENCY 0
+#define NUM_MAPS 1
+#define WEIGHTS_PER_VERTEX 0
+#define LIGHTING_MODEL 2
+#define NUM_BONES 64
+#define REFLECTION 0
+#define FRESNEL 0
+#define VERTEX_COLORS 0
+#define HAS_CUSTOM_MAP 0
+#define BLOOM 1
+#define DEBUG_NORMALS 0
+#define NUM_LIGHTS 2
+#line 1
+#define PER_PIXEL_LIGHTING NORMAL_MAPPING || REFLECTION || FORCE_PER_PIXEL_LIGHTING
+
+in vec2 textureCoords;
+
+#if VERTEX_COLORS
+    in vec4 vertexColor;
+#endif
+
+#if PER_PIXEL_LIGHTING
+	//these vectors are in tangent space if NORMAL_MAPPING is enabled and in camera space if isn't
+	#if SPECULAR_LIGHTING || REFLECTION
+		in vec3 eyeDirection;
+	#endif
+	in vec3 oN;
+	#if NORMAL_MAPPING
+		in vec3 oT;
+		in vec3 oB;
+	#endif
+	in vec3 lightDirection1;
+	#if NUM_LIGHTS >= 2
+		in vec3 lightDirection2;
+	#endif
+	#if REFLECTION
+		//in mat3 normalToWorldMatrix;
+		uniform samplerCube envMap;
+		uniform float reflectionFactor;
+		uniform float reflectionGloss;
+		const float maxLod = 8.0;
+		#if FRESNEL
+			uniform float fresnelBias;
+			uniform float fresnelScale;
+			uniform float fresnelPower;
+		#endif
+	#endif
+#else
+	in float diffuseTerm;
+	#if SPECULAR_LIGHTING
+		in float specularTerm;
+	#endif
+#endif
+
+#if DEBUG_NORMALS
+    in vec3 debugNormal;
+#endif
+
+#if NUM_MAPS > 0
+	uniform sampler2D usedTextures[NUM_MAPS];
+#endif
+
+#if DIFFUSE_MAPPING
+	uniform int diffuseMap;
+#endif
+#if NORMAL_MAPPING
+	uniform int normalMap;
+#endif
+#if VERTEX_COLORS
+    uniform int vertexColorsAsDiffuse;
+#endif
+#if SPECULAR_MAPPING
+	uniform int specularMap;
+	#if !COLOURFUL_SPECULAR
+		uniform int specularChannel;
+	#endif
+#endif
+#if GLOSS_MAPPING
+	uniform int glossMap;
+	uniform int glossChannel;
+#endif
+#if EMISSION_MAPPING
+	uniform int emissionMap;
+	uniform int emissionChannel;
+    uniform float emissionGlow;
+#endif
+
+#if BLOOM
+    uniform float emissionMix;
+#endif
+
+#if HAS_CUSTOM_MAP
+    uniform int customMap;
+#endif
+
+
+uniform vec3 diffuseColor;
+uniform vec3 ambientColor;
+#if SPECULAR_LIGHTING
+	uniform vec3 specularColor;
+#endif
+uniform float ambientBrightness;
+uniform vec3 lightmapColor;
+uniform vec2 lightmapUv;
+
+#if SPECULAR_LIGHTING && PER_PIXEL_LIGHTING
+	uniform float specularExponent;
+#endif
+#if ALPHA_BLENDING
+    uniform float alphaFactor;
+    uniform float burnFactor;
+#endif
+
+uniform float rain;
+
+// fog support
+in vec3 fragment3DPos;
+in vec3 fragment3DPosModel;
+
+#line 1
+uniform int animatedTextures;
+uniform int numRows;
+uniform int numColumns;
+uniform int frame1;
+uniform int frame2;
+uniform float partialFrame;
+uniform float texScaleU;
+uniform float texScaleV;
+
+vec2 getUV(vec2 originalUV, int frame) {
+    int row = frame / numColumns;
+    int column = frame - row * numColumns;
+    float tileWidth = 1.0 / float(numColumns);
+    float tileHeight = 1.0 / float(numRows);
+    return vec2(
+            column * tileWidth + originalUV.x * texScaleU,
+            row * tileHeight + originalUV.y * texScaleV
+    );
+}
+#line 108
+#define FOG 1
+#if FOG
+    uniform vec3 playerPos; // I won't change this
+
+    uniform float g_FogSkylightInfluence;
+    uniform float g_SkylightAtPlayer;
+
+    uniform vec3 g_FogColorNear;
+    uniform vec3 g_FogColorFar;
+    uniform float g_FogFarColorDistance;
+
+    uniform float g_FogStartDistance;
+    uniform float g_FogLocationHeight;
+    uniform float g_FogHeightFalloff;
+
+    uniform float g_FogDensity;
+    uniform float g_MaxFogAmount;
+
+    uniform float g_FogDirectionalInscatteringExp; // 0.0 - 4.0 is OK range
+    uniform float g_FogDirectionalInscatteringStartDist;
+    uniform vec3 g_FogDirectionalInscaterringColor;
+    uniform vec3 g_SunDir;
+
+    // if fog is outdoor-based, the indoor fog will get density bonus based on how far the pixel is from the camera
+    // like if the ray was accumulating fog while traversing 'outdoors' environment before entering the indoors
+    const float FOG_INDOOR_BONUS_PEAKDIST = 0.0078125; // 1.0 / 128.0. At 128 blocks all interiors will get fully fogged
+    const float FOG_FAR_EDGE_DIST_INV = 0.01; // 1.0 / 100.0. Distance for far fog color
+#endif
+
+float saturate(float a)
+{
+    return max(0.0, min(1.0, a));
+}
+
+vec3 getFogColor(in vec3 cameraToWorldPos) {
+#if FOG
+    vec3 fogColor = vec3(0.0);
+    vec3 eyeDir = normalize(cameraToWorldPos);
+    float distance = length(cameraToWorldPos) - g_FogStartDistance;
+
+    // fog color is mixing over the distance between start and end color
+    float distanceColorWeight = max(0.0, min(1.0, distance / g_FogFarColorDistance));
+    fogColor = mix(g_FogColorNear, g_FogColorFar, distanceColorWeight);
+
+    float directionalConeAngle = 1.0 + dot(eyeDir, g_SunDir);
+    float inscatteringFactor = pow(saturate(dot(eyeDir, -g_SunDir)), g_FogDirectionalInscatteringExp);
+    float inscatteringDistanceFactor = max(0.0, min(1.0, (distance - g_FogDirectionalInscatteringStartDist) / max(0.1, g_FogDirectionalInscatteringStartDist)));
+    fogColor += g_FogDirectionalInscaterringColor * inscatteringFactor * inscatteringDistanceFactor;
+
+    return fogColor;
+#else
+    return vec3(1.0);
+#endif
+}
+
+float ComputeVolumetricFog(in vec3 cameraToWorldPos, in float skylightAtPos) {
+#if FOG
+    float fog = 0.0;
+    float distanceToPixel = length(cameraToWorldPos) - g_FogStartDistance;
+
+    // compute integral to get height fog
+    vec3 cViewPos = playerPos - vec3(0.0, g_FogLocationHeight, 0.0);
+    float cVolFogHeightDensityAtViewer = exp(-g_FogHeightFalloff * cViewPos.y);
+    float fogInt = distanceToPixel * cVolFogHeightDensityAtViewer;
+    float t = g_FogHeightFalloff * cameraToWorldPos.y;
+    fogInt *= (1.0 - exp(-t)) / t;
+    float exponentialFogAmount = 1.0 - exp(-g_FogDensity * fogInt);
+
+    // if fog is outdoor-based, it will take into account the skylight factor at pixel position
+    // skylight factor is a mixture of skylight at pixel position and skylight the player character receives
+    // this helps with indoors/outdoors transitions, so there is no abrupt change in fog density
+    float indoorFogBonus = distanceToPixel * FOG_INDOOR_BONUS_PEAKDIST;
+    float skylightFactor = min(1.0, (skylightAtPos * 0.5 + indoorFogBonus) + g_SkylightAtPlayer * 0.75);
+    fog = g_MaxFogAmount * max(0.0, min(1.0, exponentialFogAmount));
+    fog = (1.0 - g_FogSkylightInfluence) * fog + g_FogSkylightInfluence * skylightFactor * fog;
+
+    return fog;
+#else
+    return 0.0;
+#endif
+}
+
+vec3 ComputeVolumetricFog(in vec3 rgb, in vec3 cameraToWorldPos, in float skylightAtPos) {
+#if FOG
+    vec3 newColor = mix(rgb, getFogColor(cameraToWorldPos), ComputeVolumetricFog(cameraToWorldPos, skylightAtPos));
+    return newColor;
+#else
+    return vec3(rgb);
+#endif
+}
+
+
+#define SNOW 1
+#if SNOW
+    uniform int m_useSnow;
+    uniform vec3 m_snowColor;
+    uniform sampler2D m_snowSampler;
+#endif
+
+float getSnowAmount(vec2 snowUv, vec3 color, float height, float snowMask, float heightBias) {
+    float snowAmount = 0.0;
+    #if SNOW
+        float _snowMask = min(1.0, heightBias + step(0.5, snowMask) * (snowMask - 0.25) * 1.35);
+        float _f = max(0.0, min(1.0, _snowMask + (_snowMask - height * 1.35)));
+        snowAmount = pow(_f, 3.0);
+        snowAmount -= heightBias * 0.75;
+        snowAmount = max(0.0, snowAmount);
+    #endif
+    return snowAmount;
+}
+
+float getSnowAmount(vec2 snowUv, vec3 color, float height, float snowMask) {
+    return getSnowAmount(snowUv, color, height, snowMask, 0.0);
+}
+
+vec3 applySnow(vec3 color, vec2 snowUv, float snowAmount) {
+    vec3 newColor = color.rgb;
+    #if SNOW
+        if (m_useSnow > 0) {
+            vec3 snowColor = texture(m_snowSampler, snowUv * 2.0).rgb * m_snowColor;
+            newColor = mix(color.rgb, snowColor, snowAmount);
+        }
+    #endif
+    return newColor;
+}
+
+vec3 applySnow(vec2 snowUv, vec3 color, float height, float snowMask) {
+    return applySnow(color, snowUv, getSnowAmount(snowUv, color, height, snowMask, 0.0));
+}
+
+vec3 applySnow(vec2 snowUv, vec3 color, float height, float snowMask, float heightBias) {
+    return applySnow(color, snowUv, getSnowAmount(snowUv, color, height, snowMask, heightBias));
+}
+
+
+#define ENABLE_COLOR_GRADING 1
+uniform bool isColorGradingApplied;
+uniform sampler3D colorGradingLut;
+
+#if ENABLE_COLOR_GRADING
+vec3 ApplyColorGrading(in vec3 color) {
+    if(isColorGradingApplied) {
+        return texture(colorGradingLut, color).rgb;
+    } else {
+        return color;
+    }
+}
+#endif
+
+
+
+#if SNOW
+    in float snowMaskIn;
+#endif
+
+vec4 disappear(vec4 colorIn) {
+    vec4 color = colorIn;
+//    float t = uTimeIn * 0.33 * 0.5;
+//    float appearFactor = cos(t) * cos(t);
+//    if (appearFactor <= 0.01) return colorIn;
+//    float s = 4.0;
+//    float us = 0.21;
+//    vec2 uv = gl_FragCoord.xy + vec2(gl_FragCoord.y * us, gl_FragCoord.x * us);
+//    vec2 pattern = smoothstep(appearFactor * s, appearFactor * s + 1.0, mod(vec2(vec2(uv)), vec2(s)));
+//    float appear = pattern.x + pattern.y;
+//    color *= min(1.0, appear);
+//    float m = 1.0 + max(0.0, min(1.0, (1.0 - appear))) * 5.0;
+//    float m1 = 1.0 + max(0.0, min(1.0, (1.0 - appear))) * 5.0 * 1.5;
+//    color.g *= m1;
+//    color.b *= m;
+//    if (color.a < 0.01) {
+//        discard;
+//    }
+    return color;
+}
+
+void main(){
+
+	#if NUM_MAPS > 0
+		vec4 pixelColors[NUM_MAPS];
+		{
+
+			pixelColors[0] = texture(usedTextures[0], textureCoords);
+		
+}
+
+	#endif
+
+	#line 1
+vec2 uv1 = getUV(textureCoords, frame1);
+vec2 uv2 = getUV(textureCoords, frame2);
+
+float bitshift = 1.0;
+{
+
+   bitshift *= 2.0;
+   // too scared to use proper bitwise operators :(
+   // should be equal to: float((animatedTextures >> i) & 1);
+   float bit = step(0.5, mod(float(animatedTextures) / bitshift, 1.0));
+
+   if (bit > 0.5) {
+       vec4 pixelColor1 = texture(usedTextures[0], uv1);
+       vec4 pixelColor2 = texture(usedTextures[0], uv2);
+       pixelColors[0] = mix(pixelColor1, pixelColor2, partialFrame);
+   }
+
+}
+
+#line 150
+
+	#if PER_PIXEL_LIGHTING
+		#if NORMAL_MAPPING
+			vec3 texN = pixelColors[normalMap].rgb*2.0 - 1.0;
+			texN.z = sqrt(max(1.0-texN.x*texN.x-texN.y*texN.y, 0.0));
+
+			vec3 nn=normalize(oN);
+			vec3 tt=normalize(oT-nn*dot(oT,nn));
+			vec3 bb=normalize(oB-(nn*dot(oB,nn)+tt*dot(oB,tt)));
+
+			mat3 TBN = mat3(tt, bb, nn);
+			vec3 n = normalize(TBN * texN);
+		#else
+			vec3 n = normalize(oN);
+		#endif
+
+		vec3 l1 = normalize(lightDirection1);
+		#if NUM_LIGHTS >= 2
+			vec3 l2 = normalize(lightDirection2);
+		#endif
+
+		#if NUM_LIGHTS == 1
+			float diffuseTerm = max(0.0, dot(n, l1));
+		#elif NUM_LIGHTS == 2
+			float diffuseTerm = min(1.0,
+					max(dot(n, l1), 0.0)+
+					max(dot(n, l2), 0.0));
+		#endif
+
+		#if SPECULAR_LIGHTING || REFLECTION
+			vec3 eyeDirNorm = normalize(eyeDirection);
+			#if GLOSS_MAPPING
+				float gloss = pixelColors[glossMap][glossChannel];
+			#endif
+		#endif
+
+		#if SPECULAR_LIGHTING
+			vec3 halfDir1 = normalize(l1 + eyeDirNorm);
+			float specAngle1 = max(dot(halfDir1, n), 0.0);
+			#if NUM_LIGHTS >= 2
+				vec3 halfDir2 = normalize(l2 + eyeDirNorm);
+				float specAngle2 = max(dot(halfDir2, n), 0.0);
+			#endif
+
+			float specularExponentLocal = specularExponent;
+			#if GLOSS_MAPPING
+				specularExponentLocal *= gloss;
+			#endif
+
+			#if NUM_LIGHTS == 1
+				float specularTerm = pow(specAngle1, specularExponentLocal);
+			#elif NUM_LIGHTS == 2
+				float specularTerm = min(pow(specAngle1, specularExponentLocal) +
+						pow(specAngle2, specularExponentLocal), 1.0);
+			#endif
+		#endif
+	#endif
+
+	#if DIFFUSE_MAPPING
+		vec3 diffuseMapColor = pixelColors[diffuseMap].rgb;
+	#else
+		vec3 diffuseMapColor = vec3(1.0, 1.0, 1.0);
+	#endif
+
+	#if VERTEX_COLORS
+	    if (vertexColorsAsDiffuse > 0) {
+	        diffuseMapColor.rgb *= vertexColor.rgb;
+	    }
+	#endif
+
+	#if SPECULAR_LIGHTING && SPECULAR_MAPPING
+		#if COLOURFUL_SPECULAR
+		    vec3 specularMapColor = pixelColors[specularMap].rgb;
+		#else
+		    vec3 specularMapColor = vec3(pixelColors[specularMap][specularChannel]);
+		#endif
+	#endif
+
+	#if DIFFUSE_MAPPING && ALPHA_TRANSPARENCY
+		float alpha = pixelColors[diffuseMap].a;
+		#if ALPHA_BLENDING
+            alpha *= alphaFactor;
+		#endif
+	#else
+		float alpha = 1.0;
+	#endif
+
+    // single emission map affects three properties
+    // all of these things aren't pretty but what can we do
+    // 1: how bright is the ambient color is replaced with
+    #define EMISSION_COLOR_SCALE 18.0
+    // 2: how to mix ambient color with emissive color
+    #define BRIGHTNESS_SCALE 5.0
+    // 3: how much to add to the bloom render target
+    #define BLOOM_COLOR_SCALE 0.6
+
+    float colorBrightness = ambientBrightness;
+	#if EMISSION_MAPPING
+	    vec3 emissionColor = pixelColors[emissionMap].rgb * emissionGlow * EMISSION_COLOR_SCALE;
+        float brightness = min(1.0, length(pixelColors[emissionMap].rgb) * BRIGHTNESS_SCALE);
+	#else
+	    vec3 emissionColor = vec3(1.0);
+	    float brightness = colorBrightness;
+	#endif
+
+	#if BLOOM
+        vec4 bloom = vec4(0.0);
+        bloom.w = 1.0 - emissionMix;
+        #if EMISSION_MAPPING
+            vec3 bloomMapColor = vec3(pixelColors[emissionMap].rgb * emissionGlow * BLOOM_COLOR_SCALE);
+        #else
+            vec3 bloomMapColor = vec3(0.0);
+        #endif
+	#endif
+
+
+	vec3 diffuseColor = diffuseColor;
+
+	#if SNOW
+	    vec2 suv = fragment3DPosModel.xz + fragment3DPosModel.y * 0.25;
+	    float snowAmount = getSnowAmount(suv, diffuseMapColor, length(diffuseMapColor), snowMaskIn);
+	    diffuseMapColor = applySnow(diffuseMapColor, suv, snowAmount);
+	    diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.6), snowAmount);
+	#endif
+
+	
+
+    #if SPECULAR_LIGHTING
+        #if SPECULAR_MAPPING
+            vec3 highlightColor = specularColor * specularMapColor;
+        #else
+            vec3 highlightColor = specularColor;
+        #endif
+    #endif
+
+	#if DIFFUSE_MAPPING && ALPHA_TRANSPARENCY && ALPHA_BLENDING && SPECULAR_LIGHTING
+	    alpha += highlightColor.r * specularTerm;
+	#endif
+
+	#if ENABLE_COLOR_GRADING
+	diffuseMapColor.rgb = ApplyColorGrading(diffuseMapColor.rgb);
+	#endif
+
+	vec4 color = vec4(
+			ambientColor * diffuseMapColor.rgb * mix(lightmapColor, emissionColor, clamp(brightness, 0.0, 1.0)) +
+			diffuseColor * diffuseTerm * diffuseMapColor.rgb * lightmapColor,
+			alpha);
+
+	#if SPECULAR_LIGHTING
+		color += vec4(highlightColor * specularTerm * lightmapColor, 0.0);
+	#endif
+	
+	#if REFLECTION
+		vec3 reflectedDirection = reflect(-eyeDirNorm, n);
+		float envLodNormalized = reflectionGloss;
+		#if GLOSS_MAPPING
+			envLodNormalized *= gloss;
+		#endif
+		vec4 reflectedColor = textureLod(envMap, reflectedDirection, maxLod * (1.0 - min(1.0, envLodNormalized)));
+		#if SPECULAR_MAPPING
+			reflectedColor *= vec4(specularMapColor, 1.0);
+		#endif
+		vec3 reflectivity = vec3(reflectionFactor, reflectionFactor, reflectionFactor) * lightmapColor;
+		#if FRESNEL
+			reflectivity *= max(0.0, min(1.0, fresnelBias + fresnelScale * pow(1.0+dot(-eyeDirNorm, n), fresnelPower)));
+		#endif
+		#if SPECULAR_MAPPING
+			reflectivity *= specularMapColor;
+		#endif
+		
+		color = mix(color, reflectedColor, vec4(reflectivity, reflectivity.r));
+	#endif
+
+    
+    color = disappear(color);
+
+    #if FOG
+	    color.rgb = ComputeVolumetricFog(color.rgb, fragment3DPos, lightmapUv.y);
+    #endif
+
+	#if ALPHA_TRANSPARENCY
+	    #if ALPHA_BLENDING
+	        #define ALPHA_THRESHOLD 0.01
+	    #else
+	        #define ALPHA_THRESHOLD 0.4
+	    #endif
+	    if (color.a < ALPHA_THRESHOLD) discard;
+	#endif
+
+	#if ALPHA_BLENDING
+	    color.rgb *= color.a;
+	    color.a *= (1.0 - burnFactor);
+	#endif
+
+    #if BLOOM // bloom can also be altered by shader hooks, so ADD emission to the bloom instead of setting it
+        bloom.xyz += bloomMapColor;
+    #endif
+
+	gl_FragData[0] = vec4(color.r, color.g, color.b, color.a);
+
+	#if BLOOM
+	    gl_FragData[1] = bloom;
+    #endif
+
+	#if DEBUG_NORMALS
+	    #if !BLOOM // wtf nvidia fix
+            gl_FragData[1] = vec4(1.0);
+        #endif
+	    #if PER_PIXEL_LIGHTING
+            gl_FragData[2] = vec4(n * 0.5 + 0.5, 1.0);
+	    #else
+            gl_FragData[2] = vec4(debugNormal * 0.5 + 0.5, 1.0);
+        #endif
+    #endif
+}

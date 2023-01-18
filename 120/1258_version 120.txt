@@ -1,0 +1,4 @@
+#version 120
+#include effects:module/fog.frag
+
+varying vec3 pos;

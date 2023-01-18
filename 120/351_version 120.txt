@@ -1,0 +1,42 @@
+#version 120 
+uniform sampler2D image; 
+uniform vec2 pixelOffset; 
+
+varying vec2 textureCoord;
+
+void main() {
+	vec2 uv = vec2(textureCoord);
+	vec2 offset = vec2(0.0);
+	vec3 color = vec3(0.0);
+	offset = 0.66547114 * pixelOffset; 
+	color += (texture2D(image, uv + offset).rgb + texture2D(image, uv - offset).rgb) * 0.06191904;
+	offset = 2.4932818 * pixelOffset; 
+	color += (texture2D(image, uv + offset).rgb + texture2D(image, uv - offset).rgb) * 0.08001733;
+	offset = 4.487909 * pixelOffset; 
+	color += (texture2D(image, uv + offset).rgb + texture2D(image, uv - offset).rgb) * 0.0742321;
+	offset = 6.4825387 * pixelOffset; 
+	color += (texture2D(image, uv + offset).rgb + texture2D(image, uv - offset).rgb) * 0.06597437;
+	offset = 8.477173 * pixelOffset; 
+	color += (texture2D(image, uv + offset).rgb + texture2D(image, uv - offset).rgb) * 0.05617389;
+	offset = 10.471811 * pixelOffset; 
+	color += (texture2D(image, uv + offset).rgb + texture2D(image, uv - offset).rgb) * 0.045821525;
+	offset = 12.466457 * pixelOffset; 
+	color += (texture2D(image, uv + offset).rgb + texture2D(image, uv - offset).rgb) * 0.035808012;
+	offset = 14.461111 * pixelOffset; 
+	color += (texture2D(image, uv + offset).rgb + texture2D(image, uv - offset).rgb) * 0.026808128;
+	offset = 16.455772 * pixelOffset; 
+	color += (texture2D(image, uv + offset).rgb + texture2D(image, uv - offset).rgb) * 0.019227743;
+	offset = 18.450445 * pixelOffset; 
+	color += (texture2D(image, uv + offset).rgb + texture2D(image, uv - offset).rgb) * 0.013211908;
+	offset = 20.44513 * pixelOffset; 
+	color += (texture2D(image, uv + offset).rgb + texture2D(image, uv - offset).rgb) * 0.008697174;
+	offset = 22.439825 * pixelOffset; 
+	color += (texture2D(image, uv + offset).rgb + texture2D(image, uv - offset).rgb) * 0.005484865;
+	offset = 24.434536 * pixelOffset; 
+	color += (texture2D(image, uv + offset).rgb + texture2D(image, uv - offset).rgb) * 0.0033138199;
+	offset = 26.42926 * pixelOffset; 
+	color += (texture2D(image, uv + offset).rgb + texture2D(image, uv - offset).rgb) * 0.0019180803;
+	offset = 28.424002 * pixelOffset; 
+	color += (texture2D(image, uv + offset).rgb + texture2D(image, uv - offset).rgb) * 0.0010636029;
+	gl_FragColor = vec4(color, 1.0);
+}

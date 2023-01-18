@@ -1,0 +1,18 @@
+#version 120
+
+uniform sampler2D image;
+uniform vec3 color;
+varying vec2 textureCoord;
+
+void gray(inout vec3 color) {
+    float maxChannel = max(color.x, max(color.y, color.z));
+    color = vec3(maxChannel);
+}
+
+void main() {
+	vec4 colorIn = texture2D(image, textureCoord);
+	vec3 colorRgb = colorIn.rgb;
+	gray(colorRgb);
+
+	gl_FragColor = vec4(colorRgb * color, colorIn.a);
+}

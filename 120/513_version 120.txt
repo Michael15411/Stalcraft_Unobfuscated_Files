@@ -1,0 +1,489 @@
+#version 120
+#define USE_2D_LUT 0
+#line 1
+
+const float pi = 3.1415926535;
+const float pi4 = pi / 4.0;
+
+varying vec2 textureCoord;
+
+// global params
+
+uniform vec2 iResolution;
+uniform float iGlobalTime;
+
+// distortions
+
+#if USE_2D_LUT
+    uniform sampler2D lut;
+#else
+    uniform sampler3D lut;
+#endif
+
+uniform sampler2D screenTexture;
+uniform sampler2D noiseTexture;
+uniform sampler2D nv_OffsetTex;
+
+uniform sampler2D m_customLayer0;
+uniform sampler2D m_customLayer1;
+
+//rain drops
+uniform bool applyScreenDistortions;
+uniform sampler2D distortions;
+
+// double vision
+
+uniform float brAmount;
+
+uniform float dualityH;
+uniform float dualityV;
+
+// used for heartbeat & damage effect, stretches the edges of the screen
+
+uniform float edgeStretchAmount;
+
+// applies a power of (1.0 + contrastAmount) to the screen
+
+uniform float contrastAmount;
+
+// vignette effect
+
+uniform vec3 vignetteColor;
+
+// vignette radius from the center of screen, 1.0 is height-fitted vignette, 2.0 goes beyond the screen and is completely invisible
+// this value guarauntees that the pixels from the center of the screen will be absolutely clear in the given radius
+uniform float vignetteRadius;
+
+// outer vignette edge width, you probably want this value to be dynamic as it looks better than changing only the radius
+// describes the smoothness of the vignette effect
+uniform float vignetteEdgeWidth;
+
+// a seprate vignette which should be applied without conflict with default vignette
+uniform float suppressionAmount;
+
+// grayscale from 0 to 1
+
+uniform float grayAmount;
+uniform float noiseAmount;
+
+// screen colors
+
+uniform bool colorGrading;
+uniform bool useScreenColor;
+uniform bool useAddColor;
+
+// color we will multiple pixel color by
+uniform vec3 screenColor;
+
+// additive color to the pixel color
+uniform vec3 addColor;
+
+uniform float hunterEffect;
+
+uniform float useNv;
+uniform vec3 nv_AddColor;
+uniform vec3 nv_ScreenColor;
+uniform float nv_GlitchAmount;
+
+uniform float psi;
+uniform float bio;
+uniform float water;
+uniform float terma;
+
+#if USE_2D_LUT
+    vec4 sampleAs3DTexture(sampler2D texture, vec3 uv, float width) {
+        float innerWidth = width - 1.0;
+        float sliceSize = 1.0 / width;              // space of 1 slice
+        float sliceInnerSize = (sliceSize / width) * innerWidth;  // space of width pixels
+        float zSlice0 = min(floor(uv.z * innerWidth), innerWidth);
+        float zSlice1 = min(zSlice0 + 1.0, innerWidth);
+        float xOffset = sliceSize * 0.5 + uv.x * (1.0 - sliceSize);
+        float yPixelSize = sliceSize * sliceSize;
+        float yOffset = yPixelSize * 0.5 + uv.y * sliceInnerSize;
+        float y0 = yOffset + (zSlice0 * sliceSize);
+        float y1 = yOffset + (zSlice1 * sliceSize);
+        vec4 slice0Color = texture2D(texture, vec2(xOffset, y0), -1000.0);
+        vec4 slice1Color = texture2D(texture, vec2(xOffset, y1), -1000.0);
+        float zOffset = mod(uv.z * innerWidth, 1.0);
+        vec4 result = mix(slice0Color, slice1Color, zOffset);
+        return result;
+    }
+#endif
+
+void gray(inout vec3 color, in float grayAmount) {
+	if (grayAmount > 0.0) {
+        float gray = dot(color, vec3(0.299, 0.587, 0.114));
+        color = mix(color, vec3(gray), grayAmount);
+    }
+}
+
+// maybe better than doing double-vision on cpu because we save fill-rate
+vec3 doubleVision(in vec2 uv) {
+    float ratio = iResolution.x / iResolution.y;
+
+    vec2 texOffset = vec2(-dualityH, -dualityV) / vec2(800, 450);
+
+    vec2 texCoord = vec2(uv.x - texOffset.x * (1.0 - uv.x), uv.y - texOffset.y * (1.0 - uv.y));
+    vec2 texCoord1 = vec2(uv.x + texOffset.x * uv.x, uv.y + texOffset.y * uv.y);
+
+    vec3 texel = vec3(0.0);
+    texel += texture2D(screenTexture, texCoord).xyz;
+    texel += texture2D(screenTexture, texCoord1).xyz;
+    texel /= 2.0;
+    return texel;
+}
+
+vec3 sampleTexel(in vec2 uv) {
+    vec3 color = vec3(0.0);
+    if (dualityV > 0.0 || dualityH > 0.0) {
+        color = doubleVision(uv);
+    } else {
+        color = texture2D(screenTexture, uv).xyz;
+    }
+    return color;
+}
+
+float magic(vec2 seed, float time) {
+    float x = (seed.x / 3.14159 + 4) * (seed.y / 13 + 4) * ((fract(time) + 1) * 10);
+    return mod((mod(x, 13) + 1) * (mod(x, 123) + 1), 0.01) - 0.005;
+}
+
+float rand(float n){return fract(sin(n) * 43758.5453123);}
+
+float noise(float p){
+	float fl = floor(p);
+  float fc = fract(p);
+	return mix(rand(fl), rand(fl + 1.0), fc);
+}
+
+
+float rand(vec2 n) {
+	return fract(sin(dot(n, vec2(12.9898, 4.1414))) * 43758.5453);
+}
+
+float noise(vec2 p){
+	vec2 ip = floor(p);
+	vec2 u = fract(p);
+	u = u*u*(3.0-2.0*u);
+
+	float res = mix(
+		mix(rand(ip),rand(ip+vec2(1.0,0.0)),u.x),
+		mix(rand(ip+vec2(0.0,1.0)),rand(ip+vec2(1.0,1.0)),u.x),u.y);
+	return res*res;
+}
+
+
+/// ============ EFFECTS ============
+
+vec2 getTermaDistortion(in float time) {
+    float noise0 = texture2D(noiseTexture, gl_FragCoord.xy / 768.0 + vec2(time * 0.01, time * 0.01)).x;
+    float noise1 = texture2D(noiseTexture, gl_FragCoord.xy / 4096.0 + vec2(time * 0.01, time * 0.01)).x;
+
+    float xDistort = (noise1 - 0.5) * 0.033;
+    float yDistort = (noise0 - 0.5) * 0.033;
+    return vec2(xDistort, yDistort);
+}
+
+vec2 getWaterDistortion(in float time) {
+    float waterStrength = 0.035;
+    float waterScale = 2.0;
+    float waterStretch = 2.0;
+    float noise0 = texture2D(noiseTexture, gl_FragCoord.xy / (waterScale * 1.9 * vec2(768.0, 768.0 * waterStretch)) + vec2(0.0, time * 0.025)).x;
+    float noise1 = texture2D(noiseTexture, gl_FragCoord.xy / (waterScale * 15.0 * vec2(768.0, 768.0 * waterStretch)) + vec2(0.0, time * 0.025)).x;
+    float distort = ((noise0 - 0.5) + (noise1 - 0.5)) * 1.0 * waterStrength;
+    return vec2(distort, distort);
+}
+
+void distort_NvGlitch(inout vec2 uv, inout vec2 overlayUv, in float time, inout float channelDistortionStr) {
+    if (useNv > 0.0 && nv_GlitchAmount > 0.0) {
+        float glitchTime = mod(time, 150.0) + 250.0;
+        float noise0 = abs(noise(glitchTime * 0.5) * 3.0);
+
+        vec2 p = overlayUv * 0.55 + vec2(0.0, 0.15 + time * 0.8);
+        float tear = texture2D(nv_OffsetTex, vec2(0.5, mod(p.y, 1.0))).r * 0.75;
+        tear = max(pow((tear - 0.2 * 0.25), 0.75), 0.0);
+
+        float freq = 0;
+        if (nv_GlitchAmount > 1.0) {
+            freq = time * 0.5 * nv_GlitchAmount;
+        } else {
+            freq = cos(time * 0.5);
+        }
+
+        float offsetPower = useNv * max(0.0, step(0.0, freq - clamp(1.0 - nv_GlitchAmount, 0, 1)) * 0.1 - noise0 * 0.035) * 20.0 * nv_GlitchAmount;
+
+        float tearFadeWidth = 0.05;
+        float tearFadeX = smoothstep(0.0, tearFadeWidth, 1.0 - uv.x) * smoothstep(0.0, tearFadeWidth, uv.x);
+        float tearFadeY = smoothstep(0.0, tearFadeWidth, 1.0 - uv.y) * smoothstep(0.0, tearFadeWidth, uv.y);
+        float distanceFromCenter = 1.0 - abs(overlayUv.y - 0.5) * 2.0;
+        float offsetTear = tear * (0.025 + distanceFromCenter * distanceFromCenter * 0.2);
+        float offsetY = offsetTear * offsetPower * tearFadeY;
+
+        channelDistortionStr = step(0.01, offsetY);
+        overlayUv.y += offsetY;
+        uv.y = mod(overlayUv.y, 1.0);
+        uv.x += cos(overlayUv.y * 24.0) * 0.003 * step(0.01, tear) * tearFadeX * offsetPower;
+    }
+}
+
+void distort_Heartbeat(inout vec2 uv) {
+    if (edgeStretchAmount > 0.0) {
+        // transform uv in range [-0.5, 0.5] to apply stretch effect
+        vec2 centeredUv = uv - 0.5;
+        float stretch = max(abs(centeredUv.x), abs(centeredUv.y)) * edgeStretchAmount + min(abs(centeredUv.x), abs(centeredUv.y)) * edgeStretchAmount;
+        centeredUv *= 1.0 - pow(stretch * 1.5, 1.545);
+        uv = centeredUv + 0.5;
+    }
+}
+
+void distort_Sicknesses(inout vec2 uv, inout vec2 overlayUv, in float time) {
+    if (terma > 0.0 || bio > 0.0)
+        uv += getTermaDistortion(time) * (terma + bio);
+
+    if (water > 0.0)
+        uv += getWaterDistortion(time) * water;
+
+    uv = clamp(uv, vec2(0.001), vec2(0.999));
+}
+
+void overlay_Nv(inout vec3 color, in vec2 overlayUv, in float time) {
+	if (useNv > 0.0) {
+		color += nv_AddColor * 0.33 * useNv;
+		color *= mix(vec3(1.0), nv_ScreenColor * 0.5, useNv);
+
+		//noise
+		//color *= 1.0 - noise(overlayUv * 1000.0 + vec2(0.0, time * iResolution.y / 2.0)) * 0.15 * useNv;
+        float noise = magic(overlayUv * 16.0, time) * 512.0;
+        color *= 1.0 + abs(noise) * 0.09 * useNv;
+
+		//scanline
+		color *= 1.0 - sin(overlayUv.y * iResolution.y * 1.75) * 6.5 * 0.01 * useNv;
+	}
+}
+
+
+void overlay_Suppression(inout vec3 color, in vec2 uv, in float time) {
+    float ratio = iResolution.x / iResolution.y * 0.8;
+    float distance = length((vec2(0.5) - uv) * vec2(mix(1.0, ratio, useNv), 1.0)) * 2.0;
+    float suppVigRadius = .75 + 2. * (1. - suppressionAmount * 1.1);
+    float suppVigEdgeWidth = 0.75;
+    distance = smoothstep(suppVigRadius, suppVigRadius + suppVigEdgeWidth, distance);
+	color = mix(color, vec3(0.), distance);
+}
+
+void overlay_Vignette(inout vec3 color, in vec2 uv, in float time) {
+    float ratio = iResolution.x / iResolution.y * 0.8;
+    float distance = length((vec2(0.5) - uv) * vec2(mix(1.0, ratio, useNv), 1.0)) * 2.0;
+    distance = smoothstep(vignetteRadius, vignetteRadius + vignetteEdgeWidth, distance);
+	color = mix(color, vignetteColor, distance);
+}
+
+
+const int NUM_SAMPLES = 8;
+const float decay = 0.995;
+const float exposure = 0.0106 * 16.;
+const float density = 0.075;
+const float weight = 0.65;
+const float hunterVignRadius = 0.7;
+const float hunterVignEdgeWidth = 0.9;
+
+void overlay_Hunter(inout vec3 color, in vec2 uv, float effect){
+    float ratio = iResolution.x / iResolution.y * 0.8;
+    float distance = length((vec2(0.5) - uv) * vec2(mix(1.0, ratio, useNv), 1.0)) * 2.0;
+    distance = smoothstep(hunterVignRadius, hunterVignRadius + hunterVignEdgeWidth, distance);
+
+    vec2 tc = uv;
+    vec2 deltaTexCoord = vec2(tc - vec2(.5)) * 1.0 /  float(NUM_SAMPLES) * density ;
+
+	float illuminationDecay = 1.0;
+	vec3 radColor = color;
+	for (int i = 0; i < NUM_SAMPLES; i++) {
+		tc -= deltaTexCoord;
+		vec3 pixel = sampleTexel(tc).rgb;
+		pixel *= illuminationDecay * weight;
+		illuminationDecay *= decay;
+		radColor += pixel;
+	}
+    color = mix(color, vec3(0.7, 0.7, 1.3), 0.2F * effect);
+	color = mix(color, radColor * exposure, distance * effect);
+	color -= vec3(0.5, 0.5, 0.1) * distance * .250 * step(0.001, effect);
+}
+
+
+void overlay_Terma(inout vec3 color, in vec2 uv, in vec2 overlayUv, in float time) {
+    if (terma > 0.0) {
+        float overlayNoise = texture2D(noiseTexture, (uv + getTermaDistortion(time) * 2.5) * 3.5).x;
+        gray(color, 0.15 * terma);
+        color *= vec3(1.0, 1.0 - 0.25 * terma, 1.0 - 0.45 * terma);
+        color += vec3(0.35 * terma, 0.1 * terma, 0.0) * length((vec2(0.5) - overlayUv) * 2.0) * overlayNoise * 1.5;
+	}
+}
+
+void overlay_Psi(inout vec3 color, in vec2 uv, in vec2 overlayUv, in float time) {
+    if (psi > 0.0) {
+        gray(color, 0.5 * psi);
+        float lum = color.r + color.g + color.b;
+        color *= vec3(1.0, 1.0, 1.0 - 0.6 * psi);
+        color += vec3(0.0, 0.0, 0.25 * psi);
+        color = pow(color, vec3(1.0 + 0.1 * psi, 1.0 + 0.1 * psi, 1.0 + 0.5 * psi));
+    }
+}
+
+void overlay_Bio(inout vec3 color, in vec2 uv, in vec2 overlayUv, in float time) {
+    if (bio > 0.0) {
+        float bioMask = smoothstep(0.05, 0.5, bio);
+        float gradient = max(0.0, length((vec2(0.5) - overlayUv) * 2.0));
+        float staticNoiseBio = texture2D(noiseTexture, (overlayUv / 2.0 + getTermaDistortion(time) * 7.5 + vec2(0.0, -time * 0.02)) * 3.5).x;
+        color *= vec3(1.0 - 0.2 * bioMask, 1.0 + 0.1 * bioMask, 1.0 - 0.3 * bioMask);
+        color += vec3(0.0, 0.1 * bioMask, 0.0);
+        color *= 1.0 + 1.0 * bio;
+        vec3 bioColored = vec3(0.55 * bio, 1.15 * bio, 0.25) * gradient * pow(staticNoiseBio, 4.0) * 6.5;
+        color = mix(color, bioColored, staticNoiseBio * bio);
+    }
+}
+
+void overlay_Sickness(inout vec3 color, in vec2 uv, in vec2 overlayUv, in float time) {
+	overlay_Psi(color, uv, overlayUv, time);
+	overlay_Bio(color, uv, overlayUv, time);
+	overlay_Terma(color, uv, overlayUv, time);
+}
+
+void applyNoise(inout vec3 color, in float time, in vec2 uv) {
+    //float noise = (texture2D(noiseTexture, gl_FragCoord.xy / 128.0 + randomOffset).x - 0.5) * 2.0;
+    float noise = magic(uv * 16.0, time) * 512.0;
+    color *= 1.0 + abs(noise) * noiseAmount;
+}
+
+void applyNv_GlitchDistortion(inout vec3 color, in vec2 uv, in float channelDistortionStr) {
+	if (useNv > 0.0 && nv_GlitchAmount > 0.0) {
+	    float distort = channelDistortionStr;
+	    float offset = 0.0095;
+	    color = mix(color, vec3(
+	        sampleTexel(uv + vec2(0.0, offset)).r,
+	        sampleTexel(uv).g,
+	        sampleTexel(uv - vec2(0.0, offset)).b
+	    ), vec3(distort) * useNv * channelDistortionStr);
+	}
+}
+
+void applyBr(inout vec3 color, inout vec2 uv, inout vec3 overlayColor) {
+    vec2 savedUv = uv;
+    if (brAmount > 0.0) {
+        vec2 flowRg = texture2D(m_customLayer1, uv * 3.0 + vec2(0.0, iGlobalTime * 0.05)).rg;
+        vec2 flowDirection = (flowRg * 0.5 - 0.5) * 2.0;
+        flowDirection *= 0.15;
+
+        float timeScaled = iGlobalTime / 6.0;
+        float timeCycle = timeScaled - floor(timeScaled);
+
+        float cycleOFfset = 0.0 * noise(uv * 8.0);
+        float flowMapOffset0 = mod(0.0 + timeCycle, 1.0);
+        float flowMapOffset1 = mod(0.5 + timeCycle, 1.0);
+
+        float phase0 = cycleOFfset * 0.5 + flowMapOffset0;
+        float phase1 = cycleOFfset * 0.5 + flowMapOffset1;
+
+        float halfCycle = 0.5;
+        float flowLerp = abs(halfCycle - flowMapOffset0) / halfCycle;
+
+        vec3 grid0 = texture2D(m_customLayer0, uv * 2.5 + flowDirection * phase0).rgb;
+        vec3 grid1 = texture2D(m_customLayer0, uv * 2.5 + flowDirection * phase1).rgb;
+
+        vec3 grid = mix(grid0, grid1, flowLerp);
+        grid += grid * (1.0 - uv.y) * 0.15;
+        overlayColor += pow(grid, vec3(9.0)) * 3.0 * brAmount * brAmount;
+        overlayColor.g += uv.y * 0.3;
+        overlayColor.b += uv.y * 0.9;
+        uv += flowDirection * mix(phase0, phase1, flowLerp) * 0.25;
+    }
+    uv = mix(savedUv, uv, brAmount);
+    overlayColor *= brAmount;
+}
+
+void main() {
+	float time = iGlobalTime * 1.0;
+
+	vec3 color = vec3(0.0);
+
+	vec2 overlayUv = vec2(textureCoord);
+	vec2 uv = vec2(overlayUv);
+
+    float channelDistortionStr = 0.0;
+    distort_NvGlitch(uv, overlayUv, time, channelDistortionStr);
+	distort_Heartbeat(uv);
+	distort_Sicknesses(uv, overlayUv, time);
+
+    vec3 overlayColor = vec3(0.0);
+    vec2 sampleCoords = uv;
+    if(applyScreenDistortions){
+        vec4 distort = texture2D(distortions, overlayUv);
+        vec2 offset = ((distort.xy + 0.5/255.0) - 0.5) * 0.15 * distort.a;
+        sampleCoords += offset;
+    }
+
+    applyBr(color, sampleCoords, overlayColor);
+    color = sampleTexel(sampleCoords);
+    color.rgb += overlayColor;
+
+    if(hunterEffect > 0){
+        float d = distance(uv, vec2(.5)) / .5;
+        vec2 texOffset = (1. / iResolution.xy) * 3.5 * (d * .85 + .15) * hunterEffect;
+        color.r = sampleTexel(sampleCoords + texOffset).r ;
+        color.b = sampleTexel(sampleCoords - texOffset).b;
+    }
+
+//    // base + sobel
+//        vec2 pixelSize = vec2(1.0) / iResolution;
+//        color += sampleTexel(uv + pixelSize * vec2(0.0, 0.0));
+//
+//        color -= sampleTexel(uv + pixelSize * vec2(-1.0, -0.0));
+//        color += sampleTexel(uv + pixelSize * vec2(1.0, -0.0));
+//        color -= sampleTexel(uv + pixelSize * vec2(-1.0, 0.0));
+//        color += sampleTexel(uv + pixelSize * vec2(1.0, 0.0));
+//
+//    // base + narco
+//        vec2 pixelSize = vec2(4.0) / iResolution;
+//        vec2 offset = vec2(cos(iGlobalTime * 2), sin(iGlobalTime * 2)) * pixelSize;
+//        color += sampleTexel(uv + pixelSize * vec2(0.0, 0.0) + sampleTexel(uv).rb * pixelSize * 4.0);
+//        offset *= 1.0 + length(color);
+//
+//        float v = 1.5;
+//        color -= sampleTexel(uv - offset + pixelSize * vec2(-1.0, -0.0)) * v * vec3(0, 0, 1);
+//        color -= sampleTexel(uv + offset + pixelSize * vec2(1.0, -0.0)) * v * vec3(1, 0, 0);
+//        color += sampleTexel(uv - offset + pixelSize * vec2(-1.0, 0.0)) * v * vec3(1, 0, 0);
+//        color += sampleTexel(uv + offset + pixelSize * vec2(1.0, 0.0)) * v * vec3(0, 0, 1);
+
+    applyNv_GlitchDistortion(color, uv, channelDistortionStr);
+
+	if (contrastAmount > 0.0) {
+		color = pow(color, vec3(1.0 + contrastAmount));
+	}
+
+	gray(color, grayAmount);
+
+	overlay_Sickness(color, uv, overlayUv, time);
+
+	if (useScreenColor) { color *= screenColor; }
+
+    applyNoise(color, time, overlayUv);
+
+    overlay_Nv(color, overlayUv, time);
+
+	if (useAddColor) { color += addColor; }
+
+	color = min(vec3(1.0), max(vec3(0.0), color));
+
+    overlay_Hunter(color, uv, hunterEffect);
+	overlay_Suppression(color, uv, time);
+    overlay_Vignette(color, uv, time);
+
+    if (gl_FragCoord.x > gl_FragCoord.y * (1920.0 / 1020.0))
+        if (colorGrading) {
+            #if USE_2D_LUT
+       //         color.rgb = sampleAs3DTexture(lut, color.rgb, 16.0).rgb;
+            #else
+       //         color.rgb = texture3D(lut, color.rgb).rgb;
+            #endif
+        }
+    gl_FragColor = vec4(color, 1.0);
+}ªa˛?˚êöË

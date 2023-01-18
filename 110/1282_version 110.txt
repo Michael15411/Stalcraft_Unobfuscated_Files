@@ -1,0 +1,12 @@
+#version 110
+
+void main() {
+    vec2 pos = gl_FragCoord.xy/8.0;
+    int column = int(pos.x);
+    int row = int(pos.y);
+    if (int(mod(pos.x, 2.0)) == int(mod(pos.y, 2.0))) {
+        gl_FragColor = vec4(1.0, 0.0, 1.0, 1.0);
+    } else {
+        gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0);
+    }
+}

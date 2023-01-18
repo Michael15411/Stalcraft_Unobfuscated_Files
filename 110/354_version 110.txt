@@ -1,0 +1,18 @@
+#version 110
+
+uniform vec2 pixelSize;
+varying vec2 uv;
+
+uniform vec2 slotSize;
+const vec2 padding = vec2(3.0, -1.0);
+
+void main() {
+    vec4 color = vec4(0.0);
+    vec2 uv = uv / pixelSize;
+    float gridH0 = step(1.0 + padding.x, mod(uv.x, slotSize.x)) - step(slotSize.x - padding.x, mod(uv.x, slotSize.x));
+    float gridH1 = 1.0 - step(1.0, mod(uv.y, slotSize.y));
+    float gridV0 = 1.0 - step(1.0, mod(uv.x, slotSize.x));
+    float gridV1 = step(1.0 + padding.y, mod(uv.y, slotSize.y)) - step(slotSize.y - padding.y, mod(uv.y, slotSize.y));
+    color.a += max(0.0, min(1.0, gridH0 * gridH1 + gridV0 * gridV1));
+    gl_FragColor = color;
+}

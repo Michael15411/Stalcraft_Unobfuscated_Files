@@ -1,0 +1,11 @@
+#version 110
+
+varying vec2 uv;
+varying float channel;
+
+void main(){
+   	gl_Position = gl_ProjectionMatrix * gl_ModelViewMatrix * vec4(gl_Vertex.xy, 0.0, 1.0);
+    gl_FrontColor = gl_Color;
+    uv = vec2(gl_MultiTexCoord0);
+    channel = gl_Vertex.z; //seems legit
+}

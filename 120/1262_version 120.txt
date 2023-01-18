@@ -1,0 +1,3 @@
+#version 120
+
+const vec3 CIRCLE_COLOR =

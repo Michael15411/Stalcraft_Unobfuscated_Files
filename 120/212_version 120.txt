@@ -1,0 +1,126 @@
+#version 120
+
+uniform sampler2D m_layer0;
+uniform sampler2D m_layer1;
+uniform sampler2D m_layer2;
+uniform sampler2D m_layerFlow;
+uniform sampler2D m_depthBuffer;
+uniform float m_time;
+uniform vec3 m_zoneCenter;
+uniform vec2 m_zoneSize;
+uniform vec2 m_resolution;
+
+varying vec2 uv;
+varying vec3 vert;
+varying vec3 pos;
+varying vec3 normal;
+
+float rand(vec2 n) {
+	return fract(sin(dot(n, vec2(12.9898, 4.1414))) * 43758.5453);
+}
+
+float noise(vec2 p){
+	vec2 ip = floor(p);
+	vec2 u = fract(p);
+	u = u*u*(3.0-2.0*u);
+
+	float res = mix(
+		mix(rand(ip),rand(ip+vec2(1.0,0.0)),u.x),
+		mix(rand(ip+vec2(0.0,1.0)),rand(ip+vec2(1.0,1.0)),u.x),u.y);
+	return res*res;
+}
+
+void main() {
+    vec3 eye = normalize(-pos);
+    vec2 ouv = uv;
+    float r = m_zoneSize.x;
+    float a = atan((-m_zoneCenter.z + vert.z), -(-m_zoneCenter.x + vert.x));
+    a = (a + 3.14159) / (3.14159 * 2.0);
+    float is = 1.0 - (step(150.0, r) * 0.5);
+    float iis = 1.0 / is;
+    float scale = max(0.25, 1.0 / (is * 2.0) * float(int(r / (75.0 * iis))));
+    //float scale = max(0.05, 0.15 * float(int(r / 10.0)));
+    vec2 newuv = vec2(a * scale, uv.y) * 2.0;
+    vec2 uv = (newuv) * vec2(4.0 , 0.71) * 2.0;
+    vec2 uv1 = uv * vec2(1.0, 1.0) * 2.0;
+    vec2 vuv = uv * vec2(3.0, 3.0) * 0.5;
+
+    vec4 sceneDepth = texture2D(m_depthBuffer, gl_FragCoord.xy / m_resolution);
+    float particleDepth = gl_FragCoord.z;
+    float near = 0.05;
+    float far = 256.0;
+    float sceneZ = (2 * near) / (far + near - sceneDepth.x * (far - near));
+    float particleZ = (2 * near) / (far + near - particleDepth * (far - near));
+
+    float depth = (sceneZ - particleZ) * 2500.0 / 195.0;
+    float df = 0.5 * clamp(2.0 *((depth > 0.5) ? 1.0 - depth : depth), 0.0, 1.0);
+    float weight = (depth > 0.5) ? 1.0 - df : df;
+
+    if (sceneZ < particleZ) {
+        discard;
+    }
+
+    vec2 flowRg = texture2D(m_layerFlow, vuv + vec2(0.0, m_time * 0.05)).rg + texture2D(m_layer0, vuv).rg;
+    vec2 flowDirection = (flowRg * 0.5 - 0.5) * 2.0;
+    flowDirection *= 0.15;
+
+    float timeScaled = m_time / 6.0;
+    float timeCycle = timeScaled - floor(timeScaled);
+
+    float cycleOFfset = 0.0 * noise(uv * 8.0);
+    float flowMapOffset0 = mod(0.0 + timeCycle, 1.0);
+    float flowMapOffset1 = mod(0.5 + timeCycle, 1.0);
+
+    float phase0 = cycleOFfset * 0.5 + flowMapOffset0;
+    float phase1 = cycleOFfset * 0.5 + flowMapOffset1;
+
+    vec4 color00 = texture2D(m_layer0, uv + flowDirection * phase0);
+    vec4 color10 = texture2D(m_layer0, uv + flowDirection * phase1);
+
+    vec4 color01 = texture2D(m_layer1, ouv + flowDirection * phase0);
+    vec4 color11 = texture2D(m_layer1, ouv + flowDirection * phase1);
+
+    vec4 color02 = texture2D(m_layer2, uv1 + vec2(m_time * 0.05, 0.0) + flowDirection * phase0 * 2.0);
+    vec4 color12 = texture2D(m_layer2, uv1 + vec2(m_time * 0.05, 0.0) + flowDirection * phase1 * 2.0);
+
+    float halfCycle = 0.5;
+    float flowLerp = abs(halfCycle - flowMapOffset0) / halfCycle;
+
+    vec4 color0 = mix(color00, color10, flowLerp);
+    vec4 color1 = mix(color01, color11, flowLerp);
+    vec4 color2 = mix(color02, color12, flowLerp);
+
+    vec4 color = color0 * 0.9 + 0.6 * length(color1) * vec4(0.2, 0.5, 0.6, 1.0);
+    color.rgb = color.rgb + max(vec3(0.0), color.rgb * (1.0 - length(color2.rgb)) * 2.5);
+
+    color.g += flowRg.g * 0.2 * cycleOFfset;
+
+    float alpha = 1.0;
+    float topCutoff = smoothstep(m_zoneSize.y - 20.0, m_zoneSize.y, vert.y - m_zoneCenter.y);
+    alpha *= 1.0 - topCutoff;
+
+    float caution = min(length(vert), length(vert - vec3(0.0, -3.0, 0.0)));
+    color.r += 1.0 - smoothstep(2.0, 5.0, caution);
+    color.g -= (1.0 - smoothstep(2.0, 5.0, caution)) * 0.5;
+    color.b -= (1.0 - smoothstep(2.0, 5.0, caution)) * 0.75;
+
+    color.r += (1.0 - ouv.y) * 0.15;
+    color.rg += ouv.y * 0.2;
+    color.rgb *= alpha;
+   // if (gl_FragCoord.x > 1920.0 / 2.0)
+        color.rgb *= vec3(1.1, 1.1, 1.6);
+    color.rgb *= 0.55;
+    color.a -= topCutoff;
+
+    color.a *= length(color.rgb);
+    color.a = pow(color.a, .65) * 0.45;
+    color = mix(color, vec4(color.rgb * vec3(0.25, 0.25, 0.5), 0.5), 1.0 - weight);
+    color = mix(color, vec4(1.0), smoothstep(0.965, 1.0, 1.0 - weight));
+
+    float oa = smoothstep(0.5, 3.0, length(pos));
+    oa *= 1.0 - smoothstep(16.0 * 8., 16.0 * 10.0, length(vert.xz));
+    color.rgb *= oa;
+    color.a *= oa;
+
+	gl_FragColor = color;
+}

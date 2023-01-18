@@ -1,0 +1,36 @@
+#version 110
+#define PSYSTORM 0
+#define EJECTION 1
+#line 1
+
+varying vec3 pos;
+varying vec3 pos0;
+uniform float angle;
+
+vec4 rot(vec4 vec, vec3 axis, float angle){
+	if (angle == 0.0){
+		return vec;
+	}
+	angle = radians(angle);
+	float s = sin(angle);
+    float c = cos(angle);
+    float oc = 1.0 - c;
+
+	return vec4(
+		(oc * axis.x * axis.x + c)          * vec.x + (oc * axis.x * axis.y - axis.z * s) * vec.y + (oc * axis.z * axis.x + axis.y * s) * vec.z,
+		(oc * axis.x * axis.y + axis.z * s) * vec.x + (oc * axis.y * axis.y + c)          * vec.y + (oc * axis.y * axis.z - axis.x * s) * vec.z,
+		(oc * axis.z * axis.x - axis.y * s) * vec.x + (oc * axis.y * axis.z + axis.x * s) * vec.y + (oc * axis.z * axis.z + c)          * vec.z,
+		vec.w
+	);
+}
+
+void main(){
+    // removes night sky rotation
+    vec4 original = rot(vec4(gl_Vertex.xyz, 1.0), vec3(0.0, 1.0, 0.0), -90.0);
+    pos0 = gl_Vertex.xyz;
+    //original = rot(original, vec3(1.0, 0.0, 0.0), -angle);
+    original = rot(original, vec3(0.0, 1.0, 0.0), 45.0 + angle);
+	pos = original.xyz;
+
+	gl_Position = gl_ProjectionMatrix * gl_ModelViewMatrix * gl_Vertex;
+}½ù<

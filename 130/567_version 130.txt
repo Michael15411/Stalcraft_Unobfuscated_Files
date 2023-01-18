@@ -1,0 +1,70 @@
+#version 130
+
+in vec4 vertexPosition;
+in vec4 textureCoordsIn;
+in vec3 modelPosition;
+in vec3 brightness;
+in vec3 pcolor;
+in float rotation;
+in float size;
+in float alpha;
+in float burn;
+
+out vec2 textureCoords;
+out vec3 brightnessOut;
+out vec3 pColorOut;
+out float alphaOut;
+out float burnOut;
+out float particleSize;
+
+out vec3 pos;
+
+uniform vec3 rotationVec;
+uniform mat4 billboardRotMatrix;
+uniform mat4 mvpMatrix;
+
+vec4 rot(vec4 vec, vec3 axis, float angle){
+	if (angle == 0){
+		return vec;
+	}
+	angle = radians(angle);
+	float s = sin(angle);
+    float c = cos(angle);
+    float oc = 1.0 - c;
+	
+	return vec4(
+		(oc * axis.x * axis.x + c)          * vec.x + (oc * axis.x * axis.y - axis.z * s) * vec.y + (oc * axis.z * axis.x + axis.y * s) * vec.z,
+		(oc * axis.x * axis.y + axis.z * s) * vec.x + (oc * axis.y * axis.y + c)          * vec.y + (oc * axis.y * axis.z - axis.x * s) * vec.z,
+		(oc * axis.z * axis.x - axis.y * s) * vec.x + (oc * axis.y * axis.z + axis.x * s) * vec.y + (oc * axis.z * axis.z + c)          * vec.z,
+		vec.w
+	);
+}
+
+void main(){
+	vec4 vertexPositionScaled = vec4(vertexPosition.x * size, vertexPosition.y  * size, vertexPosition.z * size, vertexPosition.w);
+	vec4 rotatedPos = (vec4(modelPosition, 1.0) + rot(vertexPositionScaled, rotationVec, rotation));
+	gl_Position = mvpMatrix * rotatedPos;
+    pos = rotatedPos.xyz;
+
+	float xTextureCoord;
+	float yTextureCoord;
+	
+	if (gl_VertexID < 2){
+		xTextureCoord = textureCoordsIn.x;
+	} else {
+		xTextureCoord = textureCoordsIn.z;
+	}
+	
+	if (gl_VertexID == 0 || gl_VertexID == 3){
+		yTextureCoord = textureCoordsIn.y;
+	} else {
+		yTextureCoord = textureCoordsIn.w;
+	}
+	
+	textureCoords = vec2(xTextureCoord, yTextureCoord);
+	brightnessOut = brightness;
+	alphaOut = alpha;
+	burnOut = burn;
+	pColorOut = pcolor;
+	particleSize = size;
+}[¬è

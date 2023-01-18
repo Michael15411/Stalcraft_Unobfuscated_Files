@@ -1,0 +1,9 @@
+#version 110
+
+varying vec2 uv;
+void main(){
+    vec2 p = uv * 2. - 1.;
+    float distance = length(p);
+    float alpha = smoothstep(.5, .5 + 1., distance) * gl_Color.a - smoothstep(0.95, 1.0, distance);
+    gl_FragColor = vec4(gl_Color.rgb, gl_Color.a * alpha);
+}

@@ -1,0 +1,3 @@
+#version 110
+
+uniform vec3 m_zoneCenter;

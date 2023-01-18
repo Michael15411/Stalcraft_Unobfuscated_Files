@@ -1,0 +1,3 @@
+#version 120
+
+uniform bool shadowPass;

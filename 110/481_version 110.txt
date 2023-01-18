@@ -1,0 +1,19 @@
+#version 110
+
+varying vec2 uv;
+
+const float innerRadius = 0.1;
+
+void main() {
+    float d = distance(uv, vec2(0.5));
+
+    float b0 = innerRadius * 0.7;
+    float r0 = innerRadius - b0;
+    float c0 = 1.0 - smoothstep(r0, r0 + b0, d);
+
+    float c = c0 * 1.25;
+
+    // results in kind of broken blending, but that is actually beneficial here
+    // because it mimics darkened countour which improves visibility when background color matches crosshair color
+    gl_FragColor = c * vec4(gl_Color.rgb, gl_Color.a);
+}

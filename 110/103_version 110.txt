@@ -1,0 +1,36 @@
+#version 110
+
+uniform float time;
+
+varying vec2 uv;
+
+float sdHexagon(in vec2 p, in float r )
+{
+    const vec3 k = vec3(-0.866025404,0.5,0.577350269);
+    p = abs(p);
+    p -= 2.0*min(dot(k.xy,p),0.0)*k.xy;
+    p -= vec2(clamp(p.x, -k.z*r, k.z*r), r);
+    return length(p)*sign(p.y);
+}
+
+void main(){
+    vec2 p = uv - vec2(0.5);
+    p *= mat2(0.0, 1.0, -1.0, 0.0); // rotate by 45 degree
+
+    float inner_radius = 0.2;
+    float outer_radius = 0.5;
+
+    float t = time * 0.4;
+    float f = 0.0;
+    for(int i = 0; i < 3; i++){
+        float k = fract(float(i) * .1 + t);
+        float r = inner_radius + k * (2.0 - k) * (outer_radius - inner_radius);
+        float d = sdHexagon(p, r);
+        float h = smoothstep(-0.01, 0.0, d) - smoothstep(0.005, 0.01, d);
+        float a = 1.0 - (r - inner_radius) / (outer_radius - inner_radius);
+        f = max(f, h * a);
+    }
+
+
+    gl_FragColor = vec4(gl_Color.rgb, gl_Color.a * f);
+}

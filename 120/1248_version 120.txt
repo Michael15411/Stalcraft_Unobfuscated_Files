@@ -1,0 +1,3 @@
+#version 120
+
+const float core[41] =

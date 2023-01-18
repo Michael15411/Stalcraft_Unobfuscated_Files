@@ -1,0 +1,12 @@
+#version 150
+in vec4 Attrib_Position;
+in vec4 Attrib_Color;
+in vec2 Attrib_TexCoord;
+out vec4 Color;
+out vec2 TexCoord;
+void main(void)
+{
+	Color = Attrib_Color;
+	TexCoord = Attrib_TexCoord;
+	gl_Position = Attrib_Position;
+}

@@ -1,0 +1,3 @@
+#version 130
+
+#include effects:module/fog.frag"

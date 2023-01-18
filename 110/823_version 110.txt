@@ -1,0 +1,56 @@
+#version 110
+
+uniform float upperGradientHeight;
+uniform vec2 spotCenter;
+uniform vec2 spotRadius;
+uniform vec2 resolution;
+
+varying vec2 uv;
+
+float sdEllipse( in vec2 p, in vec2 ab ){
+    p = abs(p); if( p.x > p.y ) {p=p.yx;ab=ab.yx;}
+    float l = ab.y*ab.y - ab.x*ab.x;
+    float m = ab.x*p.x/l;      float m2 = m*m;
+    float n = ab.y*p.y/l;      float n2 = n*n;
+    float c = (m2+n2-1.0)/3.0; float c3 = c*c*c;
+    float q = c3 + m2*n2*2.0;
+    float d = c3 + m2*n2;
+    float g = m + m*n2;
+    float co;
+    if( d<0.0 )
+    {
+        float h = acos(q/c3)/3.0;
+        float s = cos(h);
+        float t = sin(h)*sqrt(3.0);
+        float rx = sqrt( -c*(s + t + 2.0) + m2 );
+        float ry = sqrt( -c*(s - t + 2.0) + m2 );
+        co = (ry+sign(l)*rx+abs(g)/(rx*ry)- m)/2.0;
+    }
+    else
+    {
+        float h = 2.0*m*n*sqrt( d );
+        float s = sign(q+h)*pow(abs(q+h), 1.0/3.0);
+        float u = sign(q-h)*pow(abs(q-h), 1.0/3.0);
+        float rx = -s - u - c*4.0 + 2.0*m2;
+        float ry = (s - u)*sqrt(3.0);
+        float rm = sqrt( rx*rx + ry*ry );
+        co = (ry/sqrt(rm-rx)+2.0*g/rm-m)/2.0;
+    }
+    vec2 r = ab * vec2(co, sqrt(1.0-co*co));
+    return length(r-p) * sign(p.y-r.y);
+}
+
+void main(){
+    vec2 pos = uv * resolution;
+    float color = 0.0;
+
+    color = clamp(1.0 - (pos.y + 25.0) / resolution.y, 0.0, 1.0);
+    color = pow(2.0, 5.0 * (color - 1.0));
+
+    vec2 ellipsePos = spotCenter / resolution;
+    vec2 ellipseWeights = spotRadius / resolution;
+    float ellipse = max(0.0, -sdEllipse(uv - ellipsePos, ellipseWeights));
+    color += smoothstep(0.0, 0.2, ellipse) * 0.75;
+
+    gl_FragColor = vec4(0.0, 0.0, 0.0, color * gl_Color.a);
+}

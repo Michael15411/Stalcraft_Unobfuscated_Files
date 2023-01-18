@@ -1,0 +1,4 @@
+#version 110
+
+uniform float border;
+varying vec2 uv;)

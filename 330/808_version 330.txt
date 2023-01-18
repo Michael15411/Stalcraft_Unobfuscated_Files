@@ -1,0 +1,201 @@
+#version 330
+
+#define lowp
+#define mediump
+#define highp
+#define IN in
+#define CENTROID centroid
+#define TEX2D textureLod
+#define OUT out
+
+#define LAYOUT(ind) 
+
+#define MOD mod
+#define FRAC fract
+#define LERP mix
+
+float atan2(in float y, in float x) {
+    return x == 0.0 ? sign(y)* 3.141592 / 2.0 : atan(y, x);
+}
+
+
+
+
+// Dummy
+float CalcDepthFade(vec2 screenUV, float meshZ, float softParticleParam) { return 1.0; }
+
+
+
+LAYOUT(0) IN vec4 atPosition;
+LAYOUT(1) IN vec4 atColor;
+LAYOUT(2) IN vec3 atNormal;
+LAYOUT(3) IN vec3 atTangent;
+LAYOUT(4) IN vec2 atTexCoord;
+LAYOUT(5) IN vec2 atTexCoord2;
+//$C_IN1$
+//$C_IN2$
+
+LAYOUT(0) CENTROID OUT lowp vec4 v_VColor;
+LAYOUT(1) CENTROID OUT mediump vec2 v_UV1;
+LAYOUT(2) CENTROID OUT mediump vec2 v_UV2;
+LAYOUT(3) OUT mediump vec4 v_WorldN_PX;
+LAYOUT(4) OUT mediump vec4 v_WorldB_PY;
+LAYOUT(5) OUT mediump vec4 v_WorldT_PZ;
+LAYOUT(6) OUT mediump vec4 v_PosP;
+//$C_OUT1$
+//$C_OUT2$
+#define _INSTANCE_COUNT_ 10
+uniform sampler2D efk_texture_288;
+uniform sampler2D efk_background;
+uniform sampler2D efk_depth;
+
+uniform mat4 uMatCamera;
+uniform mat4 uMatProjection;
+uniform vec4 mUVInversed;
+uniform vec4 predefined_uniform;
+uniform vec4 cameraPosition;
+
+
+
+#define FLT_EPSILON 1.192092896e-07
+
+vec3 PositivePow(vec3 base, vec3 power)
+{
+	return pow(max(abs(base), vec3(FLT_EPSILON, FLT_EPSILON, FLT_EPSILON)), power);
+}
+
+vec3 LinearToSRGB(vec3 c)
+{
+	return max(1.055 * PositivePow(c, vec3(0.416666667,0.416666667,0.416666667)) - 0.055, 0.0);
+}
+
+vec4 LinearToSRGB(vec4 c)
+{
+    vec3 param = c.xyz;
+    return vec4(LinearToSRGB(param), c.w);
+}
+
+vec4 ConvertFromSRGBTexture(vec4 c)
+{
+    if (predefined_uniform.z == 0.0)
+    {
+        return c;
+    }
+    vec4 param = c;
+    return LinearToSRGB(param);
+}
+
+vec3 SRGBToLinear(vec3 c)
+{
+	return min(c, c * (c * (c * 0.305306011 + 0.682171111) + 0.012522878));
+}
+
+vec4 SRGBToLinear(vec4 c)
+{
+    vec3 param = c.xyz;
+    return vec4(SRGBToLinear(param), c.w);
+}
+
+vec4 ConvertToScreen(vec4 c)
+{
+    if (predefined_uniform.z == 0.0)
+    {
+        return c;
+    }
+    vec4 param = c;
+    return SRGBToLinear(param);
+}
+
+
+
+
+vec2 GetUV(vec2 uv)
+{
+	uv.y = mUVInversed.x + mUVInversed.y * uv.y;
+	return uv;
+}
+
+vec2 GetUVBack(vec2 uv)
+{
+	uv.y = mUVInversed.z + mUVInversed.w * uv.y;
+	return uv;
+}
+
+void main() {
+	vec3 worldPos = atPosition.xyz;
+	vec3 objectScale = vec3(1.0, 1.0, 1.0);
+
+	// Dummy
+	vec2 screenUV = vec2(0.0, 0.0);
+	float meshZ = 0.0;
+
+	// UV
+	vec2 uv1 = atTexCoord.xy;
+	//uv1.y = mUVInversed.x + mUVInversed.y * uv1.y;
+	vec2 uv2 = atTexCoord2.xy;
+	//uv2.y = mUVInversed.x + mUVInversed.y * uv2.y;
+
+	// NBT
+	vec3 worldNormal = (atNormal - vec3(0.5, 0.5, 0.5)) * 2.0;
+	vec3 worldTangent = (atTangent - vec3(0.5, 0.5, 0.5)) * 2.0;
+	vec3 worldBinormal = cross(worldNormal, worldTangent);
+
+	v_WorldN_PX.xyz = worldNormal;
+	v_WorldB_PY.xyz = worldBinormal;
+	v_WorldT_PZ.xyz = worldTangent;
+	vec3 pixelNormalDir = worldNormal;
+	vec4 vcolor = atColor;
+
+
+vec2 val0=uv1;
+vec4 val1_CompMask=vec4(val0.x,val0.y, 0.0, 1.0);
+float val1=val1_CompMask.y;
+float val2=(val1-float(0.5));
+float val3=abs(val2);
+float val4=(val3/float(0.39));
+float val5=(val4*val4);
+float val6=float(1.0)-val5;
+vec2 val7=val0+vec2(0.0,2.0)*predefined_uniform.x;
+vec4 val14 = ConvertFromSRGBTexture(TEX2D(efk_texture_288,GetUV(val7), 0.0));
+float val13=val14.w;
+vec3 val9=val14.xyz;
+float val15=(val13/float(1.0));
+float val16=(val15*val15);
+float val17=(val16*val6);
+vec3 normalDir = vec3(0.5,0.5,1.0);
+vec3 worldPositionOffset = vec3(0.0,0.0,0.0);
+vec3 baseColor = vec3(0.0,0.0,0.0);
+vec3 emissive = val9;
+float metallic = float(0.5);
+float roughness = float(0.5);
+float ambientOcclusion = float(1.0);
+float opacity = val17;
+float opacityMask = float(1.0);
+float refraction = float(0.0);
+
+
+
+	worldPos = worldPos + worldPositionOffset;
+
+	vec4 cameraPos = uMatCamera * vec4(worldPos, 1.0);
+	cameraPos = cameraPos / cameraPos.w;
+
+	gl_Position = uMatProjection * cameraPos;
+
+	v_WorldN_PX.w = worldPos.x;
+	v_WorldB_PY.w = worldPos.y;
+	v_WorldT_PZ.w = worldPos.z;
+	v_VColor = vcolor;
+
+	v_UV1 = uv1;
+	v_UV2 = uv2;
+	//v_ScreenUV.xy = gl_Position.xy / gl_Position.w;
+	//v_ScreenUV.xy = vec2(v_ScreenUV.x + 1.0, v_ScreenUV.y + 1.0) * 0.5;
+
+	v_PosP = gl_Position;
+
+	#ifdef _Y_INVERTED_
+	gl_Position.y = - gl_Position.y;
+	#endif
+}
+
